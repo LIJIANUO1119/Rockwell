@@ -1,0 +1,5 @@
+{
+  "name": "SMP Light Manager",
+  "description": "A comprehensive SMT production management platform for line tracking, nozzle configuration, constraint analysis, and OEE optimization.",
+  "requestFramePermissions": []
+}
