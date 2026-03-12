@@ -21,14 +21,20 @@ import {
   Trash2,
   Download,
   History,
-  GitBranch
+  GitBranch,
+  Network,
+  Maximize2,
+  Activity,
+  ShieldAlert,
+  Zap
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-type Tab = 'dashboard' | 'config' | 'constraints' | 'cycletime' | 'allocation' | 'data';
+type Tab = 'dashboard' | 'config' | 'cycletime' | 'allocation' | 'new_allocation';
 
 interface Line {
   id: number;
+  facility: string;
   line_number: string;
   name: string;
   status: string;
@@ -39,35 +45,92 @@ interface Machine {
   id: number;
   line_id: number;
   line_name: string;
+  machine_id: string;
+  equipment_type: string;
   brand: string;
   model: string;
   name: string;
-  software_version: string;
+  serial_number: string;
+  software_level: string;
+  ip_address: string;
+  dns: string;
+  gateway: string;
   nozzle_config: string;
+}
+
+interface Constraint {
+  id: number;
+  line_id: number;
+  line_number: string;
+  type: string;
+  description: string;
+  is_active: number;
 }
 
 interface CycleTime {
   id: number;
+  macyid: string;
+  plant: string;
   line_id: number;
+  setupnum: string;
+  workorderno: string;
   assembly_no: string;
+  revision: string;
   side: string;
   machine_name: string;
-  min_cycle_time: number;
+  line_position: string;
+  boardsp: number;
+  modules: number;
+  total_panel: number;
+  panel_start_time: string;
+  panel_end_time: string;
   medium_cycle_time: number;
   current_cycle_time: number;
-  updated_at: string;
+}
+
+interface FamilyGrouping {
+  id: number;
+  assembly_number: string;
+  pcb_number: string;
+  family: string;
+  family_num: string;
+  top_line_name: string;
+  bottom_line_name: string;
+  cycle_time: number;
+  circuit_count: number;
+  board_length: number;
+  board_width: number;
+  placement_count: number;
+}
+
+interface Bottleneck {
+  line_id: number;
+  machine_name: string;
+  max_time: number;
 }
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [lines, setLines] = useState<Line[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
+  const [constraints, setConstraints] = useState<Constraint[]>([]);
   const [cycleTimes, setCycleTimes] = useState<CycleTime[]>([]);
+  const [familyGroupings, setFamilyGroupings] = useState<FamilyGrouping[]>([]);
+  const [bottlenecks, setBottlenecks] = useState<Bottleneck[]>([]);
+  const [simulationResults, setSimulationResults] = useState<any[]>([]);
+  const [stats, setStats] = useState({ totalLines: 0, totalMachines: 0, activeBottlenecks: 0, lastSync: '' });
   const [loading, setLoading] = useState(true);
-
-  // Form states
-  const [newLine, setNewLine] = useState({ line_number: '', name: '' });
-  const [newMachine, setNewMachine] = useState({ line_id: '', brand: '', model: '', name: '', software_version: '', nozzle_config: '' });
+  const [showAddLine, setShowAddLine] = useState(false);
+  const [showAddMachine, setShowAddMachine] = useState(false);
+  const [newLine, setNewLine] = useState({ facility: 'Rockwell-SGP', line_number: '', name: '' });
+  const [newMachine, setNewMachine] = useState({ 
+    line_id: 0, machine_id: '', equipment_type: 'Mounter', brand: '', model: '', name: '', 
+    serial_number: '', software_level: '', ip_address: '', dns: '', gateway: '', nozzle_config: '' 
+  });
+  const [etfComponents, setEtfComponents] = useState([
+    { part_number: 'PN-8829-X', nozzle: 'CN030', placement_count: 120 },
+    { part_number: 'PN-1122-Y', nozzle: 'CN040', placement_count: 45 }
+  ]);
 
   useEffect(() => {
     fetchData();
@@ -75,14 +138,22 @@ export default function App() {
 
   const fetchData = async () => {
     try {
-      const [linesRes, machinesRes, cycleRes] = await Promise.all([
+      const [linesRes, machinesRes, constraintsRes, cycleRes, familyRes, bottleRes, statsRes] = await Promise.all([
         fetch('/api/lines'),
         fetch('/api/machines'),
-        fetch('/api/cycle-times')
+        fetch('/api/constraints'),
+        fetch('/api/cycle-times'),
+        fetch('/api/family-groupings'),
+        fetch('/api/bottlenecks'),
+        fetch('/api/stats')
       ]);
       setLines(await linesRes.json());
       setMachines(await machinesRes.json());
+      setConstraints(await constraintsRes.json());
       setCycleTimes(await cycleRes.json());
+      setFamilyGroupings(await familyRes.json());
+      setBottlenecks(await bottleRes.json());
+      setStats(await statsRes.json());
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -90,20 +161,57 @@ export default function App() {
     }
   };
 
-  const handleAddLine = async () => {
+  const toggleConstraint = async (id: number, currentStatus: number) => {
+    await fetch('/api/constraints/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, is_active: !currentStatus })
+    });
+    fetchData();
+  };
+
+  const addLine = async () => {
     if (!newLine.line_number || !newLine.name) return;
     await fetch('/api/lines', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newLine)
     });
-    setNewLine({ line_number: '', name: '' });
+    setNewLine({ facility: 'Rockwell-SGP', line_number: '', name: '' });
+    setShowAddLine(false);
     fetchData();
   };
 
-  const handleDeleteLine = async (id: number) => {
+  const addMachine = async () => {
+    if (!newMachine.line_id || !newMachine.name) return;
+    await fetch('/api/machines', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newMachine)
+    });
+    setShowAddMachine(false);
+    fetchData();
+  };
+
+  const deleteLine = async (id: number) => {
+    if (!confirm('Delete this line and all its machines?')) return;
     await fetch(`/api/lines/${id}`, { method: 'DELETE' });
     fetchData();
+  };
+
+  const deleteMachine = async (id: number) => {
+    if (!confirm('Delete this machine?')) return;
+    await fetch(`/api/machines/${id}`, { method: 'DELETE' });
+    fetchData();
+  };
+
+  const runSimulation = async () => {
+    const res = await fetch('/api/simulate-allocation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ components: etfComponents })
+    });
+    setSimulationResults(await res.json());
   };
 
   const SidebarItem = ({ id, icon: Icon, label }: { id: Tab, icon: any, label: string }) => (
@@ -116,7 +224,7 @@ export default function App() {
       }`}
     >
       <Icon size={18} />
-      <span className="text-sm font-semibold uppercase tracking-wider">{label}</span>
+      <span className="text-sm font-bold uppercase tracking-wider">{label}</span>
     </button>
   );
 
@@ -130,22 +238,21 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-lg font-black tracking-tighter leading-none">SMP LIGHT</h1>
-            <span className="text-[10px] text-emerald-500 font-bold tracking-widest uppercase">Manager v1.0</span>
+            <span className="text-[10px] text-emerald-500 font-bold tracking-widest uppercase">Manager v1.2</span>
           </div>
         </div>
 
         <nav className="flex flex-col gap-1">
           <SidebarItem id="dashboard" icon={LayoutDashboard} label="Dashboard" />
           <SidebarItem id="config" icon={Factory} label="SMT Line Config" />
-          <SidebarItem id="constraints" icon={Settings} label="Line Constraints" />
           <SidebarItem id="cycletime" icon={History} label="Product Cycletime" />
-          <SidebarItem id="allocation" icon={GitBranch} label="Line Allocation" />
-          <SidebarItem id="data" icon={Database} label="Data & Reports" />
+          <SidebarItem id="allocation" icon={GitBranch} label="Product Allocation" />
+          <SidebarItem id="new_allocation" icon={Search} label="New Allocation" />
         </nav>
 
         <div className="mt-auto p-4 bg-zinc-900/50 rounded-2xl border border-zinc-800">
           <div className="flex items-center gap-2 text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-3">
-            <TrendingUp size={12} />
+            <Activity size={12} />
             System Health
           </div>
           <div className="flex items-center justify-between">
@@ -153,7 +260,6 @@ export default function App() {
               <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
               <span className="text-xs font-bold">SQL Connected</span>
             </div>
-            <span className="text-[10px] text-zinc-600 font-mono">34ms</span>
           </div>
         </div>
       </aside>
@@ -165,18 +271,16 @@ export default function App() {
             <div className="text-emerald-500 text-xs font-bold tracking-[0.2em] uppercase mb-2">Rockwell Automation / SMP</div>
             <h2 className="text-4xl font-black tracking-tight">
               {activeTab === 'config' ? 'SMT LINE CONFIGURATION' : 
-               activeTab === 'cycletime' ? 'PRODUCT CYCLETIME' :
+               activeTab === 'cycletime' ? 'PRODUCT CYCLETIME ANALYSIS' :
                activeTab === 'allocation' ? 'PRODUCT LINE ALLOCATION' :
+               activeTab === 'new_allocation' ? 'NEW PRODUCT ALLOCATION' :
                activeTab.toUpperCase()}
             </h2>
           </div>
           <div className="flex gap-3">
-            <button 
-              onClick={() => window.open('/api/export/config')}
-              className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2 border border-zinc-700"
-            >
+            <button className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2 border border-zinc-700">
               <Download size={14} />
-              Export CSV
+              Export Config
             </button>
           </div>
         </header>
@@ -190,308 +294,584 @@ export default function App() {
             transition={{ duration: 0.2 }}
           >
             {activeTab === 'config' && (
-              <div className="space-y-8">
-                {/* Add Line Form */}
-                <div className="bg-zinc-900/50 border border-zinc-800 p-6 rounded-2xl">
-                  <h3 className="text-sm font-bold text-zinc-500 uppercase tracking-widest mb-6 flex items-center gap-2">
-                    <Plus size={14} /> Add New SMT Line
-                  </h3>
-                  <div className="grid grid-cols-3 gap-4">
-                    <input 
-                      value={newLine.line_number}
-                      onChange={e => setNewLine({...newLine, line_number: e.target.value})}
-                      placeholder="Line # (e.g. L03)" 
-                      className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                    />
-                    <input 
-                      value={newLine.name}
-                      onChange={e => setNewLine({...newLine, name: e.target.value})}
-                      placeholder="Line Name" 
-                      className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-                    />
-                    <button onClick={handleAddLine} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all">
-                      Create Line
+              <div className="space-y-12">
+                {/* Line Management Section */}
+                <section>
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-black flex items-center gap-3">
+                      <Factory className="text-emerald-500" />
+                      SMT Production Lines
+                    </h3>
+                    <button 
+                      onClick={() => setShowAddLine(!showAddLine)}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2"
+                    >
+                      <Plus size={16} /> {showAddLine ? 'Cancel' : 'Add Line'}
                     </button>
                   </div>
-                </div>
 
-                {/* Lines Table */}
-                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-                  <table className="w-full text-left">
-                    <thead className="bg-zinc-800/50 border-b border-zinc-800">
-                      <tr>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Line #</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Description</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Machines</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Status</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-800">
-                      {lines.map(line => (
-                        <tr key={line.id} className="hover:bg-zinc-800/20 transition-colors">
-                          <td className="px-6 py-4 font-mono font-bold text-emerald-500">{line.line_number}</td>
-                          <td className="px-6 py-4 font-medium">{line.name}</td>
-                          <td className="px-6 py-4 text-zinc-400 text-sm">{line.machine_count} Units</td>
-                          <td className="px-6 py-4">
-                            <span className="px-2 py-1 bg-emerald-500/10 text-emerald-500 text-[9px] font-black uppercase rounded border border-emerald-500/20">
-                              {line.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <button onClick={() => handleDeleteLine(line.id)} className="text-zinc-600 hover:text-red-500 transition-colors">
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                  {showAddLine && (
+                    <div className="mb-8 p-6 bg-zinc-900 border border-emerald-500/30 rounded-2xl grid grid-cols-4 gap-4 items-end">
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Facility</label>
+                        <input 
+                          value={newLine.facility}
+                          onChange={e => setNewLine({...newLine, facility: e.target.value})}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none focus:ring-1 focus:ring-emerald-500" 
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Line Number</label>
+                        <input 
+                          value={newLine.line_number}
+                          onChange={e => setNewLine({...newLine, line_number: e.target.value})}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none focus:ring-1 focus:ring-emerald-500" 
+                          placeholder="e.g. L03"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Line Name</label>
+                        <input 
+                          value={newLine.name}
+                          onChange={e => setNewLine({...newLine, name: e.target.value})}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none focus:ring-1 focus:ring-emerald-500" 
+                          placeholder="e.g. High Speed Line"
+                        />
+                      </div>
+                      <button 
+                        onClick={addLine}
+                        className="py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold uppercase tracking-widest text-xs"
+                      >
+                        Save Line
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    {lines.map(line => (
+                      <div key={line.id} className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl relative group">
+                        <button 
+                          onClick={() => deleteLine(line.id)}
+                          className="absolute top-4 right-4 text-zinc-700 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                        <div className="text-emerald-500 font-black text-2xl mb-1">{line.line_number}</div>
+                        <div className="text-xs font-bold text-zinc-400 mb-4">{line.name}</div>
+                        <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
+                          <Cpu size={12} />
+                          {line.machine_count} Machines
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                {/* Machine Software Version Section */}
+                <section>
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-black flex items-center gap-3">
+                      <Network className="text-emerald-500" />
+                      Machine Software Version (Configuration Data)
+                    </h3>
+                    <div className="flex gap-3">
+                      <a 
+                        href="/api/reports/config" 
+                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
+                      >
+                        <Download size={12} /> Export Config
+                      </a>
+                      <button 
+                        onClick={() => setShowAddMachine(!showAddMachine)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
+                      >
+                        <Plus size={12} /> {showAddMachine ? 'Cancel' : 'Add Machine'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {showAddMachine && (
+                    <div className="mb-8 p-6 bg-zinc-900 border border-emerald-500/30 rounded-2xl grid grid-cols-4 gap-4">
+                      <div className="col-span-2 grid grid-cols-2 gap-4">
+                        <select 
+                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, line_id: parseInt(e.target.value)})}
+                        >
+                          <option value="">Select Line</option>
+                          {lines.map(l => <option key={l.id} value={l.id}>{l.line_number}</option>)}
+                        </select>
+                        <input 
+                          placeholder="Machine ID"
+                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, machine_id: e.target.value})}
+                        />
+                        <input 
+                          placeholder="Equipment Type"
+                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, equipment_type: e.target.value})}
+                        />
+                        <input 
+                          placeholder="Machine Name"
+                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, name: e.target.value})}
+                        />
+                      </div>
+                      <div className="col-span-2 grid grid-cols-2 gap-4">
+                        <input 
+                          placeholder="Software Level"
+                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, software_level: e.target.value})}
+                        />
+                        <input 
+                          placeholder="IP Address"
+                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, ip_address: e.target.value})}
+                        />
+                        <input 
+                          placeholder="Nozzle Config (comma separated)"
+                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, nozzle_config: e.target.value})}
+                        />
+                        <button 
+                          onClick={addMachine}
+                          className="bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold uppercase tracking-widest text-xs"
+                        >
+                          Save Machine
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left">
+                        <thead className="bg-zinc-800/50 border-b border-zinc-800">
+                          <tr>
+                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Facility</th>
+                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Process Line</th>
+                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Machine ID</th>
+                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Equipment Type</th>
+                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Serial Number</th>
+                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Software Level</th>
+                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">IP Address</th>
+                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">DNS / Gateway</th>
+                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-800">
+                          {machines.map(m => (
+                            <tr key={m.id} className="hover:bg-zinc-800/20 transition-colors">
+                              <td className="px-4 py-4 text-xs font-bold text-zinc-400">Rockwell-SGP</td>
+                              <td className="px-4 py-4 font-bold text-emerald-500">{m.line_name}</td>
+                              <td className="px-4 py-4 font-mono text-xs">{m.machine_id}</td>
+                              <td className="px-4 py-4 text-sm">{m.equipment_type}</td>
+                              <td className="px-4 py-4 text-sm font-medium">{m.serial_number}</td>
+                              <td className="px-4 py-4">
+                                <span className="px-2 py-1 bg-zinc-800 rounded text-[10px] font-mono border border-zinc-700">{m.software_level}</span>
+                              </td>
+                              <td className="px-4 py-4 font-mono text-xs text-blue-400">{m.ip_address}</td>
+                              <td className="px-4 py-4 text-[10px] text-zinc-500">
+                                <div>{m.dns}</div>
+                                <div>{m.gateway}</div>
+                              </td>
+                              <td className="px-4 py-4 text-right">
+                                <button 
+                                  onClick={() => deleteMachine(m.id)}
+                                  className="text-zinc-600 hover:text-red-500 transition-colors"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Constraints Section Integrated into Config */}
+                <section>
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-xl font-black flex items-center gap-3">
+                      <ShieldAlert className="text-emerald-500" />
+                      Line and Machine Constraints
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {lines.map(line => (
+                      <div key={line.id} className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl">
+                        <div className="flex justify-between items-center mb-4">
+                          <span className="font-bold text-emerald-500">{line.line_number}</span>
+                          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{line.name}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {constraints.filter(c => c.line_id === line.id).map(c => (
+                            <div key={c.id} className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-xl border border-zinc-800">
+                              <div className="text-[10px] font-bold uppercase tracking-widest">{c.type}</div>
+                              <button 
+                                onClick={() => toggleConstraint(c.id, c.is_active)}
+                                className={`w-8 h-4 rounded-full relative transition-all ${c.is_active ? 'bg-emerald-500' : 'bg-zinc-700'}`}
+                              >
+                                <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${c.is_active ? 'right-0.5' : 'left-0.5'}`} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
               </div>
             )}
 
             {activeTab === 'cycletime' && (
               <div className="space-y-8">
-                <div className="flex gap-4">
-                  <button className="flex-1 p-6 bg-zinc-900 border border-zinc-800 rounded-2xl hover:border-emerald-500/50 transition-all text-left group">
+                <div className="grid grid-cols-4 gap-4">
+                  <button className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl hover:border-emerald-500/50 transition-all text-left group">
                     <FileUp className="text-emerald-500 mb-4 group-hover:scale-110 transition-transform" />
-                    <h4 className="font-bold mb-1">Upload Optel Cycletime</h4>
-                    <p className="text-xs text-zinc-500">SGP_GEM_MACHINE_CYCLETIME</p>
+                    <h4 className="text-xs font-bold mb-1 uppercase tracking-widest">SGP_GEM_MACHINE_CYCLETIME</h4>
+                    <p className="text-[10px] text-zinc-500">Upload Machine Report</p>
                   </button>
-                  <button className="flex-1 p-6 bg-zinc-900 border border-zinc-800 rounded-2xl hover:border-blue-500/50 transition-all text-left group">
+                  <button className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl hover:border-blue-500/50 transition-all text-left group">
                     <FileUp className="text-blue-500 mb-4 group-hover:scale-110 transition-transform" />
-                    <h4 className="font-bold mb-1">Upload Optel Build Info</h4>
-                    <p className="text-xs text-zinc-500">SGP_ASSEMBLY_BUILD_TO_MODULE</p>
+                    <h4 className="text-xs font-bold mb-1 uppercase tracking-widest">SGP_ASSEMBLY_BUILD_TO_MODULE</h4>
+                    <p className="text-[10px] text-zinc-500">Upload Build Info</p>
+                  </button>
+                  <button 
+                    onClick={() => window.open('/api/reports/performance?type=not_meeting')}
+                    className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl hover:border-red-500/50 transition-all text-left group"
+                  >
+                    <ShieldAlert className="text-red-500 mb-4 group-hover:scale-110 transition-transform" />
+                    <h4 className="text-xs font-bold mb-1 uppercase tracking-widest">Not Meeting Target</h4>
+                    <p className="text-[10px] text-zinc-500">Generate Performance Report</p>
+                  </button>
+                  <button 
+                    onClick={() => window.open('/api/reports/performance?type=exceeding')}
+                    className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl hover:border-orange-500/50 transition-all text-left group"
+                  >
+                    <AlertCircle className="text-orange-500 mb-4 group-hover:scale-110 transition-transform" />
+                    <h4 className="text-xs font-bold mb-1 uppercase tracking-widest">Exceeding Target</h4>
+                    <p className="text-[10px] text-zinc-500">Generate Performance Report</p>
                   </button>
                 </div>
 
                 <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-                  <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
-                    <h3 className="text-sm font-bold uppercase tracking-widest">Historic Cycle Time Records</h3>
-                    <div className="flex gap-2">
-                      <button className="px-3 py-1.5 bg-red-500/10 text-red-500 text-[10px] font-bold uppercase rounded border border-red-500/20">
-                        Exceed Target
-                      </button>
-                      <button className="px-3 py-1.5 bg-emerald-500/10 text-emerald-500 text-[10px] font-bold uppercase rounded border border-emerald-500/20">
-                        Meeting Target
-                      </button>
+                  <div className="p-6 border-b border-zinc-800 bg-zinc-800/30 flex justify-between items-center">
+                    <h3 className="text-sm font-bold uppercase tracking-widest">SGP_GEM_MACHINE_CYCLETIME Data</h3>
+                    <div className="flex gap-3">
+                      <a href="/api/reports/performance?type=not_meeting" className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg text-[10px] font-bold uppercase tracking-widest text-red-500 transition-all flex items-center gap-2">
+                        <Download size={12} /> Not Meeting Target
+                      </a>
+                      <a href="/api/reports/performance?type=exceeding" className="px-3 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 border border-orange-500/20 rounded-lg text-[10px] font-bold uppercase tracking-widest text-orange-500 transition-all flex items-center gap-2">
+                        <Download size={12} /> Exceed Target
+                      </a>
+                      <a href="/api/reports/performance?type=all" className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2">
+                        <Download size={12} /> All Data
+                      </a>
                     </div>
                   </div>
-                  <table className="w-full text-left">
-                    <thead className="bg-zinc-800/50">
-                      <tr>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Assembly #</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Side</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Machine</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Medium (s)</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Current (s)</th>
-                        <th className="px-6 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-800">
-                      {cycleTimes.length > 0 ? cycleTimes.map(ct => (
-                        <tr key={ct.id} className="hover:bg-zinc-800/20">
-                          <td className="px-6 py-4 font-bold">{ct.assembly_no}</td>
-                          <td className="px-6 py-4 text-zinc-400">{ct.side}</td>
-                          <td className="px-6 py-4 text-zinc-400">{ct.machine_name}</td>
-                          <td className="px-6 py-4 font-mono">{ct.medium_cycle_time}</td>
-                          <td className="px-6 py-4 font-mono">{ct.current_cycle_time}</td>
-                          <td className="px-6 py-4">
-                            {ct.current_cycle_time > ct.medium_cycle_time ? (
-                              <AlertCircle size={16} className="text-red-500" />
-                            ) : (
-                              <CheckCircle2 size={16} className="text-emerald-500" />
-                            )}
-                          </td>
-                        </tr>
-                      )) : (
+                  <div className="p-6 border-b border-zinc-800 bg-zinc-900/50 flex flex-wrap gap-4">
+                    {bottlenecks.map(b => (
+                      <div key={b.line_id} className="flex items-center gap-2 px-3 py-1 bg-red-500/10 border border-red-500/20 rounded-lg">
+                        <span className="text-[10px] font-black text-red-500 uppercase">Bottleneck:</span>
+                        <span className="text-[10px] font-bold text-zinc-300">{b.machine_name} ({b.max_time}s)</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-zinc-800/50 border-b border-zinc-800">
                         <tr>
-                          <td colSpan={6} className="px-6 py-12 text-center text-zinc-600 italic">No historic data found. Upload Optel reports to begin.</td>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">MACYID</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Plant</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">SetupNum</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">WorkOrder</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Assembly / Rev</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Side</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Machine Name</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Board SP</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Modules</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Total Panel</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Start / End Time</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Current CT</th>
                         </tr>
-                      )}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800">
+                        {cycleTimes.map(ct => (
+                          <tr key={ct.id} className="hover:bg-zinc-800/20">
+                            <td className="px-4 py-4 font-mono text-[10px] text-emerald-500">{ct.macyid}</td>
+                            <td className="px-4 py-4 text-xs font-bold text-zinc-400">SGP</td>
+                            <td className="px-4 py-4 text-xs">{ct.setupnum}</td>
+                            <td className="px-4 py-4 text-xs font-mono">{ct.workorderno}</td>
+                            <td className="px-4 py-4">
+                              <div className="font-bold text-xs">{ct.assembly_no}</div>
+                              <div className="text-[10px] text-zinc-500 font-mono">Rev: {ct.revision}</div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <span className="px-2 py-0.5 bg-zinc-800 rounded text-[10px] font-bold border border-zinc-700 uppercase">{ct.side}</span>
+                            </td>
+                            <td className="px-4 py-4 text-xs">{ct.machine_name}</td>
+                            <td className="px-4 py-4 font-mono text-xs">{ct.boardsp}</td>
+                            <td className="px-4 py-4 text-xs">1</td>
+                            <td className="px-4 py-4 text-xs">100</td>
+                            <td className="px-4 py-4 text-[10px] text-zinc-500 font-mono">
+                              <div>{ct.panel_start_time}</div>
+                              <div>{ct.panel_end_time}</div>
+                            </td>
+                            <td className={`px-4 py-4 font-mono text-xs font-bold ${ct.current_cycle_time > ct.medium_cycle_time ? 'text-red-500' : 'text-emerald-500'}`}>
+                              {ct.current_cycle_time}s
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}
 
             {activeTab === 'allocation' && (
               <div className="space-y-8">
-                <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl">
-                  <div className="flex justify-between items-center mb-8">
-                    <h3 className="text-xl font-black flex items-center gap-3">
-                      <GitBranch className="text-emerald-500" />
-                      Product Line Allocation Matrix
-                    </h3>
-                    <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-xs font-bold uppercase tracking-widest transition-all">
-                      Update Family Setup
-                    </button>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                    <div className="space-y-4">
-                      <div>
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 block">Module # / Assembly</label>
-                        <input className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Search Module..." />
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 block">Side</label>
-                          <select className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-emerald-500 outline-none">
-                            <option>Top</option>
-                            <option>Bottom</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2 block">Family</label>
-                          <input className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="Auto-filled" disabled />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="space-y-4">
-                      <div className="p-6 bg-zinc-800/30 border border-zinc-700 rounded-2xl">
-                        <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">Line Priority Ranking</h4>
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-3">
-                            <span className="w-5 h-5 bg-emerald-500 text-black text-[10px] font-black rounded flex items-center justify-center">1</span>
-                            <select className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs">
-                              <option>Select Primary Line...</option>
-                              {lines.map(l => <option key={l.id} value={l.id}>{l.line_number} - {l.name}</option>)}
-                            </select>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="w-5 h-5 bg-zinc-700 text-zinc-400 text-[10px] font-black rounded flex items-center justify-center">2</span>
-                            <select className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-xs">
-                              <option>Select Secondary Line...</option>
-                              {lines.map(l => <option key={l.id} value={l.id}>{l.line_number} - {l.name}</option>)}
-                            </select>
-                          </div>
-                        </div>
-                      </div>
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+                  <div className="p-6 border-b border-zinc-800 bg-zinc-800/30 flex justify-between items-center">
+                    <h3 className="text-sm font-bold uppercase tracking-widest">SGP_FAMILY_GROUPINGS_DETAIL (Current Allocation)</h3>
+                    <div className="flex gap-3">
+                      <a href="/api/reports/allocation" className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2">
+                        <Download size={12} /> Export Allocation
+                      </a>
+                      <button className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all">
+                        Upload Family Data
+                      </button>
                     </div>
                   </div>
-
-                  <div className="pt-8 border-t border-zinc-800">
-                    <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-6">Active Constraints for Allocation</h4>
-                    <div className="grid grid-cols-3 gap-4">
-                      {['Glue Dispenser', 'Large Board (>10")', 'Reflow Center Support'].map(c => (
-                        <label key={c} className="flex items-center gap-3 p-4 bg-zinc-800/50 border border-zinc-700 rounded-xl cursor-pointer hover:bg-zinc-800 transition-colors">
-                          <input type="checkbox" className="w-4 h-4 accent-emerald-500" />
-                          <span className="text-xs font-bold">{c}</span>
-                        </label>
-                      ))}
-                    </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-zinc-800/50 border-b border-zinc-800">
+                        <tr>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Assembly #</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">PCB #</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Family / #</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Family Set Up</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Primary Line</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Secondary Line</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Tertiary Line</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Dimensions (L/W)</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Placements</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Bottleneck</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800">
+                        {familyGroupings.map(f => {
+                          return (
+                            <tr key={f.id} className="hover:bg-zinc-800/20">
+                              <td className="px-4 py-4 font-bold">{f.assembly_number}</td>
+                              <td className="px-4 py-4 text-xs text-zinc-500">{f.pcb_number}</td>
+                              <td className="px-4 py-4">
+                                <div className="text-xs font-bold text-blue-400">{f.family}</div>
+                                <div className="text-[10px] text-zinc-500">{f.family_num}</div>
+                              </td>
+                              <td className="px-4 py-4 text-xs font-bold text-zinc-400">{f.family_setup || 'N/A'}</td>
+                              <td className="px-4 py-4">
+                                <span className="px-2 py-1 bg-emerald-500/10 text-emerald-500 text-[10px] font-bold rounded border border-emerald-500/20">
+                                  {f.top_line_name}
+                                </span>
+                              </td>
+                              <td className="px-4 py-4">
+                                <span className="px-2 py-1 bg-zinc-800 text-zinc-400 text-[10px] font-bold rounded border border-zinc-700">
+                                  {f.bottom_line_name}
+                                </span>
+                              </td>
+                              <td className="px-4 py-4">
+                                <span className="px-2 py-1 bg-zinc-800 text-zinc-500 text-[10px] font-bold rounded border border-zinc-700">
+                                  {f.tertiary_line_name || '-'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-4 text-xs font-mono">
+                                {f.board_length} x {f.board_width}
+                              </td>
+                              <td className="px-4 py-4 text-xs font-bold">{f.placement_count}</td>
+                              <td className="px-4 py-4 text-xs font-bold text-red-500">{f.cycle_time}s</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
             )}
 
-            {activeTab === 'constraints' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl">
-                  <h3 className="text-xl font-black mb-6">Line Constraint Setup</h3>
-                  <div className="space-y-4">
-                    {lines.map(line => (
-                      <div key={line.id} className="p-6 bg-zinc-800/30 border border-zinc-800 rounded-2xl">
-                        <div className="flex justify-between items-center mb-4">
-                          <span className="font-bold text-emerald-500">{line.line_number}</span>
-                          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{line.name}</span>
+            {activeTab === 'new_allocation' && (
+              <div className="max-w-4xl mx-auto space-y-8">
+                <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl">
+                  <div className="flex items-center gap-4 mb-8">
+                    <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center">
+                      <Search className="text-black" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-black">New Product Line Allocation</h3>
+                      <p className="text-xs text-zinc-500 uppercase tracking-widest font-bold">ETF Sample / Component Data Analysis</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-6">
+                      <div className="p-6 bg-zinc-800/30 border border-zinc-800 rounded-2xl">
+                        <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">ETF Component Data</h4>
+                        <div className="space-y-3">
+                          {etfComponents.map((comp, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-3 bg-zinc-900 rounded-xl border border-zinc-800">
+                              <div>
+                                <div className="text-xs font-bold">{comp.part_number}</div>
+                                <div className="text-[10px] text-zinc-500">Placement Count: {comp.placement_count}</div>
+                              </div>
+                              <div className="text-[10px] px-2 py-1 bg-blue-500/10 text-blue-400 rounded">{comp.nozzle}</div>
+                            </div>
+                          ))}
+                          <button className="w-full py-3 border border-dashed border-zinc-700 rounded-xl text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
+                            + Upload ETF File
+                          </button>
                         </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between p-3 bg-zinc-900 rounded-xl border border-zinc-800">
-                            <span className="text-xs font-medium">Glue Dispenser</span>
-                            <div className="w-10 h-5 bg-emerald-500/20 rounded-full relative">
-                              <div className="absolute right-1 top-1 w-3 h-3 bg-emerald-500 rounded-full" />
-                            </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-6">
+                      <div className="p-6 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl">
+                        <h4 className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest mb-4">Allocation Recommendation</h4>
+                        <p className="text-xs text-zinc-400 leading-relaxed">
+                          The system analyzes machine capability, component requirements (Part Number, Nozzle), and line constraints to recommend the best SMT line.
+                        </p>
+                        <div className="mt-6 space-y-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center text-emerald-500 font-bold text-xs">A</div>
+                            <div className="text-[10px] font-bold uppercase tracking-widest">Analyze Machine Capability</div>
                           </div>
-                          <div className="flex items-center justify-between p-3 bg-zinc-900 rounded-xl border border-zinc-800">
-                            <span className="text-xs font-medium">Large Board (&gt;10")</span>
-                            <div className="w-10 h-5 bg-zinc-800 rounded-full relative">
-                              <div className="absolute left-1 top-1 w-3 h-3 bg-zinc-600 rounded-full" />
-                            </div>
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center text-emerald-500 font-bold text-xs">B</div>
+                            <div className="text-[10px] font-bold uppercase tracking-widest">Match Nozzle Requirements</div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center text-emerald-500 font-bold text-xs">C</div>
+                            <div className="text-[10px] font-bold uppercase tracking-widest">Verify Line Constraints</div>
                           </div>
                         </div>
                       </div>
-                    ))}
+                    </div>
                   </div>
-                </div>
-                <div className="bg-emerald-500/5 border border-emerald-500/10 p-8 rounded-3xl flex flex-col justify-center">
-                  <div className="w-12 h-12 bg-emerald-500 rounded-2xl flex items-center justify-center mb-6">
-                    <Settings className="text-black" />
-                  </div>
-                  <h3 className="text-2xl font-black mb-4">Constraint Logic</h3>
-                  <p className="text-zinc-400 text-sm leading-relaxed mb-6">
-                    Constraints defined here are automatically applied during the Product Line Allocation process. 
-                    If a product requires a <strong>Glue Dispenser</strong>, the system will only allow allocation to lines where this constraint is enabled.
-                  </p>
-                  <ul className="space-y-3">
-                    <li className="flex items-center gap-3 text-xs font-bold text-zinc-300">
-                      <CheckCircle2 size={14} className="text-emerald-500" />
-                      Automatic Line Filtering
-                    </li>
-                    <li className="flex items-center gap-3 text-xs font-bold text-zinc-300">
-                      <CheckCircle2 size={14} className="text-emerald-500" />
-                      Reflow Support Validation
-                    </li>
-                  </ul>
+
+                  <button 
+                    onClick={runSimulation}
+                    className="w-full mt-8 py-4 bg-emerald-600 hover:bg-emerald-500 rounded-2xl font-black text-lg transition-all shadow-xl shadow-emerald-900/20"
+                  >
+                    SIMULATE ALLOCATION
+                  </button>
+
+                  {simulationResults.length > 0 && (
+                    <div className="mt-12 space-y-4">
+                      <h4 className="text-sm font-bold uppercase tracking-widest text-emerald-500">Simulation Results</h4>
+                      <div className="grid grid-cols-1 gap-4">
+                        {simulationResults.map((res, i) => (
+                          <div key={i} className={`p-6 rounded-2xl border ${res.is_capable ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20 opacity-60'}`}>
+                            <div className="flex justify-between items-center mb-4">
+                              <div>
+                                <div className="text-xl font-black">{res.line_number}</div>
+                                <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Line Compatibility Score: {res.score}</div>
+                              </div>
+                              <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest ${res.is_capable ? 'bg-emerald-500 text-black' : 'bg-red-500 text-white'}`}>
+                                {res.is_capable ? 'Capable' : 'Incapable'}
+                              </div>
+                            </div>
+                            {res.missingNozzles.length > 0 && (
+                              <div className="text-[10px] text-red-400 font-bold uppercase tracking-widest mb-2">
+                                Missing Nozzles: {res.missingNozzles.join(', ')}
+                              </div>
+                            )}
+                            {res.constraints.length > 0 && (
+                              <div className="text-[10px] text-orange-400 font-bold uppercase tracking-widest">
+                                Active Constraints: {res.constraints.join(', ')}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
 
             {activeTab === 'dashboard' && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="col-span-2 grid grid-cols-2 gap-6">
-                  <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl">
-                    <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">Active SMT Lines</h4>
-                    <div className="text-5xl font-black mb-2">{lines.length}</div>
-                    <div className="text-xs text-emerald-500 font-bold">All Systems Operational</div>
+              <div className="space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                  <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-xl">
+                    <div className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-2">Total SMT Lines</div>
+                    <div className="text-4xl font-black text-emerald-500">{stats.totalLines}</div>
                   </div>
-                  <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl">
-                    <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-4">Total Machines</h4>
-                    <div className="text-5xl font-black mb-2">{machines.length}</div>
-                    <div className="text-xs text-blue-500 font-bold">Across {lines.length} Lines</div>
+                  <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-xl">
+                    <div className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-2">Active Machines</div>
+                    <div className="text-4xl font-black text-blue-500">{stats.totalMachines}</div>
                   </div>
-                  <div className="col-span-2 bg-zinc-900 border border-zinc-800 p-8 rounded-3xl">
-                    <div className="flex justify-between items-center mb-6">
-                      <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">OEE Performance Ranking</h4>
-                      <BarChart3 size={16} className="text-zinc-600" />
-                    </div>
-                    <div className="space-y-6">
-                      {lines.map((l, i) => (
-                        <div key={l.id} className="space-y-2">
-                          <div className="flex justify-between text-xs font-bold">
-                            <span>{l.line_number} - {l.name}</span>
-                            <span className="text-emerald-500">{(85 - i * 5)}%</span>
-                          </div>
-                          <div className="w-full bg-zinc-800 h-2 rounded-full overflow-hidden">
-                            <motion.div 
-                              initial={{ width: 0 }}
-                              animate={{ width: `${85 - i * 5}%` }}
-                              className="bg-emerald-500 h-full rounded-full" 
-                            />
-                          </div>
-                        </div>
-                      ))}
+                  <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-xl">
+                    <div className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-2">Critical Bottlenecks</div>
+                    <div className="text-4xl font-black text-red-500">{stats.activeBottlenecks}</div>
+                  </div>
+                  <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-3xl shadow-xl">
+                    <div className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-2">System Health</div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
+                      <div className="text-lg font-bold text-emerald-500 uppercase tracking-tighter">Operational</div>
                     </div>
                   </div>
                 </div>
-                <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl flex flex-col">
-                  <h4 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-6">Recent Activity</h4>
-                  <div className="space-y-6 flex-1">
-                    {[1, 2, 3, 4].map(i => (
-                      <div key={i} className="flex gap-4">
-                        <div className="w-1 h-10 bg-zinc-800 rounded-full" />
-                        <div>
-                          <div className="text-xs font-bold">Optel Report Uploaded</div>
-                          <div className="text-[10px] text-zinc-500">Line L01 • 2 hours ago</div>
-                        </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl">
+                    <h3 className="text-lg font-black mb-6 flex items-center gap-3">
+                      <Activity className="text-emerald-500" />
+                      Production Performance Overview
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center p-4 bg-zinc-800/30 rounded-2xl border border-zinc-800">
+                        <div className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Avg Line Efficiency</div>
+                        <div className="text-xl font-black text-emerald-500">92.4%</div>
                       </div>
-                    ))}
+                      <div className="flex justify-between items-center p-4 bg-zinc-800/30 rounded-2xl border border-zinc-800">
+                        <div className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Target Compliance</div>
+                        <div className="text-xl font-black text-blue-500">88.1%</div>
+                      </div>
+                    </div>
                   </div>
-                  <button className="w-full py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all">
-                    View Full Audit Log
-                  </button>
+
+                  <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl">
+                    <h3 className="text-lg font-black mb-6 flex items-center gap-3">
+                      <Database className="text-emerald-500" />
+                      System Integration Status
+                    </h3>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                          <span className="text-xs font-bold text-zinc-400">Optel Report Sync</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-zinc-600">Last: {stats.lastSync ? stats.lastSync.split('T')[0] : 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                          <span className="text-xs font-bold text-zinc-400">Family Grouping Sync</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-zinc-600">Last: {stats.lastSync ? stats.lastSync.split('T')[0] : 'N/A'}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+                          <span className="text-xs font-bold text-zinc-400">ETF Analysis Engine</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-zinc-600">Active</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
