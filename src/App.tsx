@@ -55,6 +55,9 @@ interface Machine {
   ip_address: string;
   dns: string;
   gateway: string;
+  os: string;
+  windows_key: string;
+  year: string;
   nozzle_config: string;
 }
 
@@ -125,7 +128,8 @@ export default function App() {
   const [newLine, setNewLine] = useState({ facility: 'Rockwell-SGP', line_number: '', name: '' });
   const [newMachine, setNewMachine] = useState({ 
     line_id: 0, machine_id: '', equipment_type: 'Mounter', brand: '', model: '', name: '', 
-    serial_number: '', software_level: '', ip_address: '', dns: '', gateway: '', nozzle_config: '' 
+    serial_number: '', software_level: '', ip_address: '', dns: '', gateway: '', 
+    os: '', windows_key: '', year: '', nozzle_config: '' 
   });
   const [etfComponents, setEtfComponents] = useState([
     { part_number: 'PN-8829-X', nozzle: 'CN030', placement_count: 120 },
@@ -244,7 +248,7 @@ export default function App() {
 
         <nav className="flex flex-col gap-1">
           <SidebarItem id="dashboard" icon={LayoutDashboard} label="Dashboard" />
-          <SidebarItem id="config" icon={Factory} label="SMT Line Config" />
+          <SidebarItem id="config" icon={Factory} label="SMT LINE CONFIGURATION" />
           <SidebarItem id="cycletime" icon={History} label="Product Cycletime" />
           <SidebarItem id="allocation" icon={GitBranch} label="Product Allocation" />
           <SidebarItem id="new_allocation" icon={Search} label="New Allocation" />
@@ -294,234 +298,200 @@ export default function App() {
             transition={{ duration: 0.2 }}
           >
             {activeTab === 'config' && (
-              <div className="space-y-12">
-                {/* Line Management Section */}
-                <section>
-                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-black flex items-center gap-3">
+              <div className="space-y-6">
+                <div className="flex justify-between items-end mb-4">
+                  <div>
+                    <h3 className="text-2xl font-black flex items-center gap-3 uppercase tracking-tighter">
                       <Factory className="text-emerald-500" />
-                      SMT Production Lines
+                      SMT LINE CONFIGURATION
                     </h3>
-                    <button 
-                      onClick={() => setShowAddLine(!showAddLine)}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2"
+                    <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest mt-1">Integrated Machine & Software Matrix</p>
+                  </div>
+                  <div className="flex gap-3">
+                    <a 
+                      href="/api/reports/config" 
+                      className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
                     >
-                      <Plus size={16} /> {showAddLine ? 'Cancel' : 'Add Line'}
+                      <Download size={14} /> Export All Line, Machine, Software and Nozzle Configuration
+                    </a>
+                    <button 
+                      onClick={() => setShowAddMachine(!showAddMachine)}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
+                    >
+                      <Plus size={14} /> {showAddMachine ? 'Cancel' : 'Add Machine'}
                     </button>
                   </div>
+                </div>
 
-                  {showAddLine && (
-                    <div className="mb-8 p-6 bg-zinc-900 border border-emerald-500/30 rounded-2xl grid grid-cols-4 gap-4 items-end">
-                      <div>
-                        <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Facility</label>
-                        <input 
-                          value={newLine.facility}
-                          onChange={e => setNewLine({...newLine, facility: e.target.value})}
-                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none focus:ring-1 focus:ring-emerald-500" 
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Line Number</label>
-                        <input 
-                          value={newLine.line_number}
-                          onChange={e => setNewLine({...newLine, line_number: e.target.value})}
-                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none focus:ring-1 focus:ring-emerald-500" 
-                          placeholder="e.g. L03"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-zinc-500 uppercase mb-2">Line Name</label>
-                        <input 
-                          value={newLine.name}
-                          onChange={e => setNewLine({...newLine, name: e.target.value})}
-                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none focus:ring-1 focus:ring-emerald-500" 
-                          placeholder="e.g. High Speed Line"
-                        />
-                      </div>
-                      <button 
-                        onClick={addLine}
-                        className="py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold uppercase tracking-widest text-xs"
-                      >
-                        Save Line
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    {lines.map(line => (
-                      <div key={line.id} className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl relative group">
-                        <button 
-                          onClick={() => deleteLine(line.id)}
-                          className="absolute top-4 right-4 text-zinc-700 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                        <div className="text-emerald-500 font-black text-2xl mb-1">{line.line_number}</div>
-                        <div className="text-xs font-bold text-zinc-400 mb-4">{line.name}</div>
-                        <div className="flex items-center gap-2 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                          <Cpu size={12} />
-                          {line.machine_count} Machines
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                {/* Machine Software Version Section */}
-                <section>
-                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-black flex items-center gap-3">
-                      <Network className="text-emerald-500" />
-                      Machine Software Version (Configuration Data)
-                    </h3>
-                    <div className="flex gap-3">
-                      <a 
-                        href="/api/reports/config" 
-                        className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
-                      >
-                        <Download size={12} /> Export Config
-                      </a>
-                      <button 
-                        onClick={() => setShowAddMachine(!showAddMachine)}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
-                      >
-                        <Plus size={12} /> {showAddMachine ? 'Cancel' : 'Add Machine'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {showAddMachine && (
-                    <div className="mb-8 p-6 bg-zinc-900 border border-emerald-500/30 rounded-2xl grid grid-cols-4 gap-4">
-                      <div className="col-span-2 grid grid-cols-2 gap-4">
+                {showAddMachine && (
+                  <div className="p-6 bg-zinc-900 border border-emerald-500/30 rounded-2xl space-y-4 shadow-2xl">
+                    <div className="grid grid-cols-4 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">Process Line</label>
                         <select 
-                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
                           onChange={e => setNewMachine({...newMachine, line_id: parseInt(e.target.value)})}
                         >
                           <option value="">Select Line</option>
                           {lines.map(l => <option key={l.id} value={l.id}>{l.line_number}</option>)}
                         </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">Machine ID</label>
                         <input 
-                          placeholder="Machine ID"
-                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          placeholder="e.g. M-101"
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
                           onChange={e => setNewMachine({...newMachine, machine_id: e.target.value})}
                         />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">Machine Model</label>
                         <input 
-                          placeholder="Equipment Type"
-                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          placeholder="e.g. NXT-III"
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, model: e.target.value})}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">Equip Type</label>
+                        <input 
+                          placeholder="e.g. Mounter"
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
                           onChange={e => setNewMachine({...newMachine, equipment_type: e.target.value})}
                         />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">Serial / Computer Name</label>
                         <input 
-                          placeholder="Machine Name"
-                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
-                          onChange={e => setNewMachine({...newMachine, name: e.target.value})}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, serial_number: e.target.value})}
                         />
                       </div>
-                      <div className="col-span-2 grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">Software Version</label>
                         <input 
-                          placeholder="Software Level"
-                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          placeholder="GUI xxxx; MCS yyyy"
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
                           onChange={e => setNewMachine({...newMachine, software_level: e.target.value})}
                         />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">IP Address</label>
                         <input 
-                          placeholder="IP Address"
-                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
                           onChange={e => setNewMachine({...newMachine, ip_address: e.target.value})}
                         />
-                        <input 
-                          placeholder="Nozzle Config (comma separated)"
-                          className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
-                          onChange={e => setNewMachine({...newMachine, nozzle_config: e.target.value})}
-                        />
-                        <button 
-                          onClick={addMachine}
-                          className="bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold uppercase tracking-widest text-xs"
-                        >
-                          Save Machine
-                        </button>
                       </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">DNS</label>
+                        <input 
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, dns: e.target.value})}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">Gateway</label>
+                        <input 
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, gateway: e.target.value})}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">OS</label>
+                        <input 
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, os: e.target.value})}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">Windows Key</label>
+                        <input 
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, windows_key: e.target.value})}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">Year</label>
+                        <input 
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, year: e.target.value})}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end pt-2">
+                      <button 
+                        onClick={addMachine}
+                        className="px-8 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-bold uppercase tracking-widest text-[10px] transition-all"
+                      >
+                        Save Configuration
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-zinc-800/80 sticky top-0 z-10">
+                        <tr>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800">Process Line</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800">Machine ID</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800">Machine model</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800">Equip Type</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800">Serial Number / Computer Name</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800">Software Version</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800">IP Address</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800">DNS</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800">Gateway</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800">OS</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800">Windows Key</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800">Year</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-400 uppercase tracking-widest border-b border-zinc-800 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800">
+                        {machines.map(m => (
+                          <tr key={m.id} className="hover:bg-emerald-500/5 transition-colors group">
+                            <td className="px-4 py-3 font-bold text-emerald-500 whitespace-nowrap">{m.line_name}</td>
+                            <td className="px-4 py-3 font-mono text-xs text-zinc-300 whitespace-nowrap">{m.machine_id}</td>
+                            <td className="px-4 py-3 text-sm text-zinc-400 whitespace-nowrap">{m.model}</td>
+                            <td className="px-4 py-3 text-[10px] font-bold text-zinc-500 uppercase whitespace-nowrap">{m.equipment_type}</td>
+                            <td className="px-4 py-3 text-sm text-zinc-300 whitespace-nowrap">{m.serial_number}</td>
+                            <td className="px-4 py-3">
+                              <div className="text-[11px] font-mono bg-zinc-800/50 px-2 py-1 rounded border border-zinc-700/50 text-emerald-400 inline-block whitespace-nowrap">
+                                {m.software_level}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 font-mono text-xs text-blue-400 whitespace-nowrap">{m.ip_address}</td>
+                            <td className="px-4 py-3 font-mono text-[10px] text-zinc-500 whitespace-nowrap">{m.dns}</td>
+                            <td className="px-4 py-3 font-mono text-[10px] text-zinc-500 whitespace-nowrap">{m.gateway}</td>
+                            <td className="px-4 py-3 text-xs text-zinc-400 whitespace-nowrap">{m.os}</td>
+                            <td className="px-4 py-3 font-mono text-[10px] text-zinc-500 whitespace-nowrap">{m.windows_key}</td>
+                            <td className="px-4 py-3 text-sm text-zinc-400 whitespace-nowrap">{m.year}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button 
+                                onClick={() => deleteMachine(m.id)}
+                                className="text-zinc-700 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {machines.length === 0 && (
+                    <div className="p-20 text-center">
+                      <Database className="mx-auto text-zinc-800 mb-4" size={48} />
+                      <p className="text-zinc-500 font-bold uppercase tracking-widest text-xs">No machine configuration data found</p>
                     </div>
                   )}
-
-                  <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left">
-                        <thead className="bg-zinc-800/50 border-b border-zinc-800">
-                          <tr>
-                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Facility</th>
-                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Process Line</th>
-                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Machine ID</th>
-                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Equipment Type</th>
-                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Serial Number</th>
-                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Software Level</th>
-                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">IP Address</th>
-                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">DNS / Gateway</th>
-                            <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-zinc-800">
-                          {machines.map(m => (
-                            <tr key={m.id} className="hover:bg-zinc-800/20 transition-colors">
-                              <td className="px-4 py-4 text-xs font-bold text-zinc-400">Rockwell-SGP</td>
-                              <td className="px-4 py-4 font-bold text-emerald-500">{m.line_name}</td>
-                              <td className="px-4 py-4 font-mono text-xs">{m.machine_id}</td>
-                              <td className="px-4 py-4 text-sm">{m.equipment_type}</td>
-                              <td className="px-4 py-4 text-sm font-medium">{m.serial_number}</td>
-                              <td className="px-4 py-4">
-                                <span className="px-2 py-1 bg-zinc-800 rounded text-[10px] font-mono border border-zinc-700">{m.software_level}</span>
-                              </td>
-                              <td className="px-4 py-4 font-mono text-xs text-blue-400">{m.ip_address}</td>
-                              <td className="px-4 py-4 text-[10px] text-zinc-500">
-                                <div>{m.dns}</div>
-                                <div>{m.gateway}</div>
-                              </td>
-                              <td className="px-4 py-4 text-right">
-                                <button 
-                                  onClick={() => deleteMachine(m.id)}
-                                  className="text-zinc-600 hover:text-red-500 transition-colors"
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </section>
-
-                {/* Constraints Section Integrated into Config */}
-                <section>
-                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-black flex items-center gap-3">
-                      <ShieldAlert className="text-emerald-500" />
-                      Line and Machine Constraints
-                    </h3>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    {lines.map(line => (
-                      <div key={line.id} className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl">
-                        <div className="flex justify-between items-center mb-4">
-                          <span className="font-bold text-emerald-500">{line.line_number}</span>
-                          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">{line.name}</span>
-                        </div>
-                        <div className="space-y-2">
-                          {constraints.filter(c => c.line_id === line.id).map(c => (
-                            <div key={c.id} className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-xl border border-zinc-800">
-                              <div className="text-[10px] font-bold uppercase tracking-widest">{c.type}</div>
-                              <button 
-                                onClick={() => toggleConstraint(c.id, c.is_active)}
-                                className={`w-8 h-4 rounded-full relative transition-all ${c.is_active ? 'bg-emerald-500' : 'bg-zinc-700'}`}
-                              >
-                                <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${c.is_active ? 'right-0.5' : 'left-0.5'}`} />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
+                </div>
               </div>
             )}
 

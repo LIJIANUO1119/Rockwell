@@ -22,16 +22,19 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS machines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     line_id INTEGER,
-    machine_id TEXT, -- Machine ID from documentation
+    machine_id TEXT NOT NULL UNIQUE, 
     equipment_type TEXT,
     brand TEXT,
     model TEXT,
-    name TEXT NOT NULL,
-    serial_number TEXT, -- Serial Number / Computer Name
-    software_level TEXT, -- Software Level
+    name TEXT,
+    serial_number TEXT, 
+    software_level TEXT, 
     ip_address TEXT,
     dns TEXT,
     gateway TEXT,
+    os TEXT,
+    windows_key TEXT,
+    year TEXT,
     nozzle_config TEXT,
     FOREIGN KEY (line_id) REFERENCES lines(id)
   );
@@ -86,6 +89,17 @@ try {
 } catch (e) {}
 try {
   db.prepare("ALTER TABLE family_groupings ADD COLUMN tertiary_priority_line_id INTEGER").run();
+} catch (e) {}
+
+// Migration: Ensure machines has new columns
+try {
+  db.prepare("ALTER TABLE machines ADD COLUMN os TEXT").run();
+} catch (e) {}
+try {
+  db.prepare("ALTER TABLE machines ADD COLUMN windows_key TEXT").run();
+} catch (e) {}
+try {
+  db.prepare("ALTER TABLE machines ADD COLUMN year TEXT").run();
 } catch (e) {}
 
 db.exec(`
@@ -158,12 +172,12 @@ async function startServer() {
   });
 
   app.post("/api/machines", (req, res) => {
-    const { line_id, machine_id, equipment_type, brand, model, name, serial_number, software_level, ip_address, dns, gateway, nozzle_config } = req.body;
+    const { line_id, machine_id, equipment_type, brand, model, name, serial_number, software_level, ip_address, dns, gateway, os, windows_key, year, nozzle_config } = req.body;
     const info = db.prepare(`
       INSERT INTO machines 
-      (line_id, machine_id, equipment_type, brand, model, name, serial_number, software_level, ip_address, dns, gateway, nozzle_config) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(line_id, machine_id, equipment_type, brand, model, name, serial_number, software_level, ip_address, dns, gateway, nozzle_config);
+      (line_id, machine_id, equipment_type, brand, model, name, serial_number, software_level, ip_address, dns, gateway, os, windows_key, year, nozzle_config) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(line_id, machine_id, equipment_type, brand, model, name, serial_number, software_level, ip_address, dns, gateway, os, windows_key, year, nozzle_config);
     res.json({ id: info.lastInsertRowid });
   });
 
@@ -251,8 +265,8 @@ async function startServer() {
       JOIN lines l ON m.line_id = l.id
     `).all();
     
-    const csv = "Line,MachineID,Type,Brand,Model,Name,SerialNumber,SoftwareLevel,IP,DNS,Gateway,NozzleConfig\n" + 
-      machines.map(m => `${m.line_name},${m.machine_id},${m.equipment_type},${m.brand},${m.model},${m.name},${m.serial_number},${m.software_level},${m.ip_address},${m.dns},${m.gateway},${m.nozzle_config}`).join("\n");
+    const csv = "Process Line,Machine ID,Machine model,Equip Type,Serial Number / Computer Name,Software Version,IP Address,DNS,Gateway,OS,Windows Key,Year,Nozzle Config\n" + 
+      machines.map(m => `${m.line_name},${m.machine_id},${m.model},${m.equipment_type},${m.serial_number},${m.software_level},${m.ip_address},${m.dns},${m.gateway},${m.os},${m.windows_key},${m.year},${m.nozzle_config}`).join("\n");
     
     res.header('Content-Type', 'text/csv');
     res.attachment(`smt_line_configuration.csv`);
