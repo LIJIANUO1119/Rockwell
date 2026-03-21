@@ -1,0 +1,102 @@
+{
+  "entities": {
+    "Line": {
+      "title": "Line",
+      "description": "SMT Production Line",
+      "type": "object",
+      "properties": {
+        "facility": { "type": "string" },
+        "line_number": { "type": "string" },
+        "name": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["line_number", "name"]
+    },
+    "Machine": {
+      "title": "Machine",
+      "description": "SMT Machine Configuration",
+      "type": "object",
+      "properties": {
+        "line_id": { "type": "string" },
+        "machine_id": { "type": "string" },
+        "equipment_type": { "type": "string" },
+        "brand": { "type": "string" },
+        "model": { "type": "string" },
+        "name": { "type": "string" },
+        "serial_number": { "type": "string" },
+        "software_level": { "type": "string" },
+        "ip_address": { "type": "string" },
+        "dns": { "type": "string" },
+        "gateway": { "type": "string" },
+        "os": { "type": "string" },
+        "windows_key": { "type": "string" },
+        "year": { "type": "string" },
+        "nozzle_config": { "type": "string" }
+      },
+      "required": ["machine_id", "line_id"]
+    },
+    "CycleTime": {
+      "title": "CycleTime",
+      "description": "Machine Cycle Time History",
+      "type": "object",
+      "properties": {
+        "macyid": { "type": "string" },
+        "plant": { "type": "string" },
+        "line_id": { "type": "string" },
+        "setupnum": { "type": "string" },
+        "workorderno": { "type": "string" },
+        "assembly_no": { "type": "string" },
+        "revision": { "type": "string" },
+        "side": { "type": "string" },
+        "machine_name": { "type": "string" },
+        "line_position": { "type": "string" },
+        "boardsp": { "type": "number" },
+        "modules": { "type": "number" },
+        "total_panel": { "type": "number" },
+        "panel_start_time": { "type": "string" },
+        "panel_end_time": { "type": "string" },
+        "medium_cycle_time": { "type": "number" },
+        "current_cycle_time": { "type": "number" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "FamilyGrouping": {
+      "title": "FamilyGrouping",
+      "description": "Product Family Allocation",
+      "type": "object",
+      "properties": {
+        "assembly_number": { "type": "string" },
+        "pcb_number": { "type": "string" },
+        "family": { "type": "string" },
+        "family_num": { "type": "string" },
+        "family_setup": { "type": "string" },
+        "top_priority_line_id": { "type": "string" },
+        "bottom_priority_line_id": { "type": "string" },
+        "tertiary_priority_line_id": { "type": "string" },
+        "cycle_time": { "type": "number" },
+        "circuit_count": { "type": "number" },
+        "board_length": { "type": "number" },
+        "board_width": { "type": "number" },
+        "placement_count": { "type": "number" }
+      }
+    },
+    "Constraint": {
+      "title": "Constraint",
+      "description": "Line and Machine Constraints",
+      "type": "object",
+      "properties": {
+        "line_id": { "type": "string" },
+        "type": { "type": "string" },
+        "description": { "type": "string" },
+        "is_active": { "type": "boolean" }
+      }
+    }
+  },
+  "firestore": {
+    "/lines": { "schema": "Line", "description": "Production lines" },
+    "/machines": { "schema": "Machine", "description": "Machine configurations" },
+    "/cycle_times": { "schema": "CycleTime", "description": "Performance history" },
+    "/family_groupings": { "schema": "FamilyGrouping", "description": "Product allocations" },
+    "/constraints": { "schema": "Constraint", "description": "Line constraints" }
+  }
+}

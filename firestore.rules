@@ -1,0 +1,144 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: lines
+// Document ID: auto-generated
+// Fields:
+//   - facility: string (optional)
+//   - line_number: string (required)
+//   - name: string (required)
+//   - status: string (optional)
+//
+// Collection: machines
+// Document ID: auto-generated
+// Fields:
+//   - line_id: string (required) - Reference to lines collection
+//   - machine_id: string (required)
+//   - equipment_type: string
+//   - brand: string
+//   - model: string
+//   - name: string
+//   - serial_number: string
+//   - software_level: string
+//   - ip_address: string
+//   - dns: string
+//   - gateway: string
+//   - os: string
+//   - windows_key: string
+//   - year: string
+//   - nozzle_config: string
+//
+// Collection: constraints
+// Document ID: auto-generated
+// Fields:
+//   - line_id: string (required)
+//   - type: string (required)
+//   - description: string
+//   - is_active: boolean (required)
+//
+// Collection: cycle_times
+// Document ID: auto-generated
+// Fields:
+//   - line_id: string (required)
+//   - current_cycle_time: number
+//   - medium_cycle_time: number
+//   ... (other fields)
+//
+// Collection: family_groupings
+// Document ID: auto-generated
+// Fields:
+//   - assembly_number: string (required)
+//   ... (other fields)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "jianuolee1@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidLine(data) {
+      return data.line_number is string && data.line_number.size() > 0 && data.line_number.size() < 50 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100;
+    }
+
+    function isValidMachine(data) {
+      return data.line_id is string &&
+             data.machine_id is string && data.machine_id.size() > 0 && data.machine_id.size() < 50;
+    }
+
+    function isValidConstraint(data) {
+      return data.line_id is string &&
+             data.type is string &&
+             data.is_active is bool;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow write: if isAdmin();
+    }
+
+    match /lines/{lineId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidLine(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /machines/{machineId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidMachine(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /constraints/{constraintId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin() && isValidConstraint(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /cycle_times/{ctId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /family_groupings/{fgId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

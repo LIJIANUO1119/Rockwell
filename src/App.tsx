@@ -26,14 +26,38 @@ import {
   Maximize2,
   Activity,
   ShieldAlert,
-  Zap
+  Zap,
+  LogIn,
+  LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  deleteDoc, 
+  doc, 
+  updateDoc, 
+  query, 
+  orderBy,
+  getDoc,
+  getDocs,
+  where,
+  writeBatch
+} from 'firebase/firestore';
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  onAuthStateChanged,
+  signOut,
+  User
+} from 'firebase/auth';
+import { db, auth } from './firebase';
 
 type Tab = 'dashboard' | 'config' | 'cycletime' | 'allocation' | 'new_allocation';
 
 interface Line {
-  id: number;
+  id: string;
   facility: string;
   line_number: string;
   name: string;
@@ -42,8 +66,8 @@ interface Line {
 }
 
 interface Machine {
-  id: number;
-  line_id: number;
+  id: string;
+  line_id: string;
   line_name: string;
   machine_id: string;
   equipment_type: string;
@@ -62,19 +86,19 @@ interface Machine {
 }
 
 interface Constraint {
-  id: number;
-  line_id: number;
+  id: string;
+  line_id: string;
   line_number: string;
   type: string;
   description: string;
-  is_active: number;
+  is_active: boolean;
 }
 
 interface CycleTime {
-  id: number;
+  id: string;
   macyid: string;
   plant: string;
-  line_id: number;
+  line_id: string;
   setupnum: string;
   workorderno: string;
   assembly_no: string;
@@ -92,7 +116,7 @@ interface CycleTime {
 }
 
 interface FamilyGrouping {
-  id: number;
+  id: string;
   assembly_number: string;
   pcb_number: string;
   family: string;
@@ -107,7 +131,7 @@ interface FamilyGrouping {
 }
 
 interface Bottleneck {
-  line_id: number;
+  line_id: string;
   machine_name: string;
   max_time: number;
 }
@@ -121,13 +145,15 @@ export default function App() {
   const [familyGroupings, setFamilyGroupings] = useState<FamilyGrouping[]>([]);
   const [bottlenecks, setBottlenecks] = useState<Bottleneck[]>([]);
   const [simulationResults, setSimulationResults] = useState<any[]>([]);
+  const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState({ totalLines: 0, totalMachines: 0, activeBottlenecks: 0, lastSync: '' });
   const [loading, setLoading] = useState(true);
+  const [isSeeding, setIsSeeding] = useState(false);
   const [showAddLine, setShowAddLine] = useState(false);
   const [showAddMachine, setShowAddMachine] = useState(false);
   const [newLine, setNewLine] = useState({ facility: 'Rockwell-SGP', line_number: '', name: '' });
   const [newMachine, setNewMachine] = useState({ 
-    line_id: 0, machine_id: '', equipment_type: 'Mounter', brand: '', model: '', name: '', 
+    line_id: '', machine_id: '', equipment_type: 'Mounter', brand: '', model: '', name: '', 
     serial_number: '', software_level: '', ip_address: '', dns: '', gateway: '', 
     os: '', windows_key: '', year: '', nozzle_config: '' 
   });
@@ -137,85 +163,253 @@ export default function App() {
   ]);
 
   useEffect(() => {
-    fetchData();
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        setupListeners();
+      } else {
+        setLoading(false);
+      }
+    });
+
+    return () => unsubscribeAuth();
   }, []);
 
-  const fetchData = async () => {
+  const setupListeners = () => {
+    const unsubLines = onSnapshot(collection(db, 'lines'), (snapshot) => {
+      const linesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Line));
+      setLines(linesData);
+      setStats(prev => ({ ...prev, totalLines: linesData.length }));
+    });
+
+    const unsubMachines = onSnapshot(collection(db, 'machines'), (snapshot) => {
+      const machinesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Machine));
+      setMachines(machinesData);
+      setStats(prev => ({ ...prev, totalMachines: machinesData.length }));
+    });
+
+    const unsubConstraints = onSnapshot(collection(db, 'constraints'), (snapshot) => {
+      setConstraints(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Constraint)));
+    });
+
+    const unsubCycleTimes = onSnapshot(collection(db, 'cycle_times'), (snapshot) => {
+      const ctData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CycleTime));
+      setCycleTimes(ctData);
+      
+      // Calculate bottlenecks
+      const lineBottlenecks: Record<string, Bottleneck> = {};
+      ctData.forEach(ct => {
+        if (!lineBottlenecks[ct.line_id] || ct.current_cycle_time > lineBottlenecks[ct.line_id].max_time) {
+          lineBottlenecks[ct.line_id] = {
+            line_id: ct.line_id,
+            machine_name: ct.machine_name,
+            max_time: ct.current_cycle_time
+          };
+        }
+      });
+      setBottlenecks(Object.values(lineBottlenecks));
+      
+      const activeB = Object.values(lineBottlenecks).filter(b => {
+        const ct = ctData.find(c => c.line_id === b.line_id && c.machine_name === b.machine_name);
+        return ct && ct.current_cycle_time > ct.medium_cycle_time;
+      }).length;
+      setStats(prev => ({ ...prev, activeBottlenecks: activeB, lastSync: new Date().toISOString() }));
+    });
+
+    const unsubFamily = onSnapshot(collection(db, 'family_groupings'), (snapshot) => {
+      setFamilyGroupings(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FamilyGrouping)));
+    });
+
+    setLoading(false);
+  };
+
+  const login = async () => {
+    const provider = new GoogleAuthProvider();
     try {
-      const [linesRes, machinesRes, constraintsRes, cycleRes, familyRes, bottleRes, statsRes] = await Promise.all([
-        fetch('/api/lines'),
-        fetch('/api/machines'),
-        fetch('/api/constraints'),
-        fetch('/api/cycle-times'),
-        fetch('/api/family-groupings'),
-        fetch('/api/bottlenecks'),
-        fetch('/api/stats')
-      ]);
-      setLines(await linesRes.json());
-      setMachines(await machinesRes.json());
-      setConstraints(await constraintsRes.json());
-      setCycleTimes(await cycleRes.json());
-      setFamilyGroupings(await familyRes.json());
-      setBottlenecks(await bottleRes.json());
-      setStats(await statsRes.json());
+      await signInWithPopup(auth, provider);
     } catch (error) {
-      console.error('Error fetching data:', error);
-    } finally {
-      setLoading(false);
+      console.error('Login error:', error);
     }
   };
 
-  const toggleConstraint = async (id: number, currentStatus: number) => {
-    await fetch('/api/constraints/toggle', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, is_active: !currentStatus })
-    });
-    fetchData();
+  const logout = () => signOut(auth);
+
+  const toggleConstraint = async (id: string, currentStatus: boolean) => {
+    await updateDoc(doc(db, 'constraints', id), { is_active: !currentStatus });
   };
 
   const addLine = async () => {
     if (!newLine.line_number || !newLine.name) return;
-    await fetch('/api/lines', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newLine)
-    });
+    await addDoc(collection(db, 'lines'), { ...newLine, status: 'Active' });
     setNewLine({ facility: 'Rockwell-SGP', line_number: '', name: '' });
     setShowAddLine(false);
-    fetchData();
   };
 
   const addMachine = async () => {
     if (!newMachine.line_id || !newMachine.name) return;
-    await fetch('/api/machines', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newMachine)
-    });
+    await addDoc(collection(db, 'machines'), newMachine);
     setShowAddMachine(false);
-    fetchData();
   };
 
-  const deleteLine = async (id: number) => {
+  const deleteLine = async (id: string) => {
     if (!confirm('Delete this line and all its machines?')) return;
-    await fetch(`/api/lines/${id}`, { method: 'DELETE' });
-    fetchData();
+    // Delete machines first
+    const q = query(collection(db, 'machines'), where('line_id', '==', id));
+    const snapshot = await getDocs(q);
+    await Promise.all(snapshot.docs.map(d => deleteDoc(d.ref)));
+    await deleteDoc(doc(db, 'lines', id));
   };
 
-  const deleteMachine = async (id: number) => {
+  const deleteMachine = async (id: string) => {
     if (!confirm('Delete this machine?')) return;
-    await fetch(`/api/machines/${id}`, { method: 'DELETE' });
-    fetchData();
+    await deleteDoc(doc(db, 'machines', id));
   };
 
   const runSimulation = async () => {
-    const res = await fetch('/api/simulate-allocation', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ components: etfComponents })
+    // Client-side simulation logic
+    const results = lines.map(line => {
+      const lineMachines = machines.filter(m => m.line_id === line.id);
+      const lineConstraints = constraints.filter(c => c.line_id === line.id && c.is_active);
+      
+      let score = 0;
+      let missingNozzles: string[] = [];
+
+      etfComponents.forEach(comp => {
+        const hasNozzle = lineMachines.some(m => 
+          m.nozzle_config && m.nozzle_config.includes(comp.nozzle)
+        );
+        if (hasNozzle) {
+          score += comp.placement_count;
+        } else {
+          missingNozzles.push(comp.nozzle);
+        }
+      });
+
+      return {
+        line_id: line.id,
+        line_number: line.line_number,
+        score,
+        missingNozzles: [...new Set(missingNozzles)],
+        constraints: lineConstraints.map(c => c.type),
+        is_capable: missingNozzles.length === 0
+      };
     });
-    setSimulationResults(await res.json());
+
+    setSimulationResults(results.sort((a, b) => b.score - a.score));
+  };
+
+  const seedDatabase = async () => {
+    if (!user || user.email !== 'jianuolee1@gmail.com') return;
+    
+    setIsSeeding(true);
+    try {
+      const batch = writeBatch(db);
+
+      // Lines SM1-SM8
+      const lineData = [
+        { facility: 'Rockwell-SGP', line_number: 'SM1', name: 'SM1 Production Line', status: 'Active' },
+        { facility: 'Rockwell-SGP', line_number: 'SM2', name: 'SM2 Production Line', status: 'Active' },
+        { facility: 'Rockwell-SGP', line_number: 'SM3', name: 'SM3 Production Line', status: 'Active' },
+        { facility: 'Rockwell-SGP', line_number: 'SM4', name: 'SM4 Production Line', status: 'Active' },
+        { facility: 'Rockwell-SGP', line_number: 'SM5', name: 'SM5 Production Line', status: 'Active' },
+        { facility: 'Rockwell-SGP', line_number: 'SM6', name: 'SM6 Production Line', status: 'Active' },
+        { facility: 'Rockwell-SGP', line_number: 'SM7', name: 'SM7 Production Line', status: 'Active' },
+        { facility: 'Rockwell-SGP', line_number: 'SM8', name: 'SM8 Production Line', status: 'Active' },
+      ];
+
+      const lineRefs: Record<string, string> = {};
+
+      for (const l of lineData) {
+        const lineRef = doc(collection(db, 'lines'));
+        batch.set(lineRef, l);
+        lineRefs[l.line_number] = lineRef.id;
+      }
+
+      // Real Machine Data from Image
+      const machinesData = [
+        // SM1
+        { line_id: lineRefs['SM1'], machine_id: 'SPR11', equipment_type: 'Printer', model: 'MPM Momentum', software_level: '5.2.05', ip_address: '10.116.42.247', os: 'Win 10', year: '2020/10/20' },
+        { line_id: lineRefs['SM1'], machine_id: 'PI1', equipment_type: 'SPI', model: 'KY8030-2', software_level: 'Win 10 4.10.0.2', os: 'Window 7 64bit' },
+        { line_id: lineRefs['SM1'], machine_id: 'GC6A', equipment_type: 'Mounter', model: '120B015', software_level: 'Fuzion 3.13.5', ip_address: '10.116.41.128', os: 'Window 7', year: '2015/11/15' },
+        { line_id: lineRefs['SM1'], machine_id: 'GC6B', equipment_type: 'Mounter', model: '120B015', software_level: 'Fuzion 3.13.5', ip_address: '10.116.41.129', os: 'Window 7', year: '2015/11/15' },
+        { line_id: lineRefs['SM1'], machine_id: 'GX3', equipment_type: 'Mounter', model: 'Fuzion 2-14', software_level: 'Fuzion 3.13.1', ip_address: '10.116.41.115', os: 'Window 7', year: '2015/8/13' },
+        
+        // SM2
+        { line_id: lineRefs['SM2'], machine_id: 'SPR4', equipment_type: 'Printer', model: 'DEK 03iX', software_level: '09 SP13' },
+        { line_id: lineRefs['SM2'], machine_id: 'GC11', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Win 7 Fuzion 3.13.1', ip_address: '10.116.41.236', os: 'Window 7' },
+        { line_id: lineRefs['SM2'], machine_id: 'GC4', equipment_type: 'Mounter', model: 'GC60', software_level: 'Win XP UPS+8.5.6.3', ip_address: '10.116.40.203', os: 'XP SP3', year: '2010/10/10' },
+        { line_id: lineRefs['SM2'], machine_id: 'GX6', equipment_type: 'Mounter', model: 'Fuzion2_14', software_level: 'Win 7 Fuzion 3.13.1', ip_address: '10.116.41.237', os: 'Window 7', year: '2020/11/23' },
+
+        // SM3
+        { line_id: lineRefs['SM3'], machine_id: 'SPR10', equipment_type: 'Printer', model: 'MPM Momentum II', software_level: '5.2.05', ip_address: '10.116.43.187', os: 'Win 10', year: '2020/10/20' },
+        { line_id: lineRefs['SM3'], machine_id: 'GC9', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Fuzion 3.13.5', ip_address: '10.116.41.134', os: 'Window 7' },
+        { line_id: lineRefs['SM3'], machine_id: 'GC10', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Fuzion 3.13.5', ip_address: '10.116.41.136', os: 'Window 7' },
+        { line_id: lineRefs['SM3'], machine_id: 'GX1', equipment_type: 'Mounter', model: 'Fuzion2-14', software_level: 'Fuzion 3.13.1', ip_address: '10.116.41.137', os: 'Window 7', year: '2020/11/23' },
+
+        // SM7
+        { line_id: lineRefs['SM7'], machine_id: 'SPR12', equipment_type: 'Printer', model: 'MPM Momentum II', software_level: '6.0.2.3', ip_address: '10.116.43.184', os: 'Win 10', year: '2021/2/22' },
+        { line_id: lineRefs['SM7'], machine_id: 'GC12', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Win10 Fuzion 4.1.3', ip_address: '10.116.43.132', os: 'Window 10', year: '2022/2/22' },
+        { line_id: lineRefs['SM7'], machine_id: 'GX7', equipment_type: 'Mounter', model: 'Fuzion2-14', software_level: 'Win10 Fuzion 4.1.3', ip_address: '10.116.43.130', os: 'Window 10', year: '2022/2/22' },
+        { line_id: lineRefs['SM7'], machine_id: 'GX8', equipment_type: 'Mounter', model: 'Fuzion1-11', software_level: 'Win10 Fuzion 4.1.3', ip_address: '10.116.43.129', os: 'Window 10', year: '2022/2/22' },
+
+        // SM8
+        { line_id: lineRefs['SM8'], machine_id: 'SPR13', equipment_type: 'Printer', model: 'MPM Momentum II', software_level: '6.0.2.3', ip_address: '10.116.43.230', os: 'Win 10', year: '2021/2/22' },
+        { line_id: lineRefs['SM8'], machine_id: 'GC13', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Win 10 Fuzion 4.1.5', ip_address: '10.116.43.134', os: 'Window 10', year: '2022/2/22' },
+        { line_id: lineRefs['SM8'], machine_id: 'GC14', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Win 10 Fuzion 4.1.5', ip_address: '10.116.43.162', os: 'Window 10', year: '2022/2/22' },
+        { line_id: lineRefs['SM8'], machine_id: 'GX9', equipment_type: 'Mounter', model: 'Fuzion1-11', software_level: 'Win 10 Fuzion 4.1.5', ip_address: '10.116.43.163', os: 'Window 10', year: '2022/2/22' },
+
+        // SM4 (Placeholder based on typical patterns)
+        { line_id: lineRefs['SM4'], machine_id: 'SPR5', equipment_type: 'Printer', model: 'DEK Horizon', software_level: '09 SP13', ip_address: '10.116.41.50', os: 'Win 7' },
+        { line_id: lineRefs['SM4'], machine_id: 'GC5', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Fuzion 3.13.1', ip_address: '10.116.41.51', os: 'Window 7' },
+        
+        // SM5 (Placeholder)
+        { line_id: lineRefs['SM5'], machine_id: 'SPR6', equipment_type: 'Printer', model: 'MPM Momentum', software_level: '5.2.05', ip_address: '10.116.41.60', os: 'Win 10' },
+        { line_id: lineRefs['SM5'], machine_id: 'GC6', equipment_type: 'Mounter', model: '120B015', software_level: 'Fuzion 3.13.5', ip_address: '10.116.41.61', os: 'Window 7' },
+
+        // SM6 (Placeholder)
+        { line_id: lineRefs['SM6'], machine_id: 'SPR7', equipment_type: 'Printer', model: 'DEK NeoHorizon', software_level: '10.0.1', ip_address: '10.116.41.70', os: 'Win 10' },
+        { line_id: lineRefs['SM6'], machine_id: 'GC7', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Fuzion 4.1.3', ip_address: '10.116.41.71', os: 'Window 10' },
+      ];
+
+      for (const m of machinesData) {
+        const machineRef = doc(collection(db, 'machines'));
+        batch.set(machineRef, {
+          ...m,
+          brand: m.model.includes('Fuzion') || m.model.includes('120B') ? 'Universal' : 
+                 m.model.includes('MPM') ? 'ITW' : 'Other',
+          name: m.machine_id,
+          serial_number: 'SEE_IMAGE',
+          dns: '10.126.0.147/148',
+          gateway: '10.116.40.1',
+          windows_key: 'N/A',
+          nozzle_config: 'Standard'
+        });
+      }
+
+      await batch.commit();
+      setIsSeeding(false);
+    } catch (error) {
+      console.error('Seeding error:', error);
+      setIsSeeding(false);
+    }
+  };
+
+  const exportCSV = (data: any[], filename: string, headers: string[]) => {
+    const csvContent = [
+      headers.join(','),
+      ...data.map(row => headers.map(h => {
+        const val = row[h] || '';
+        return `"${String(val).replace(/"/g, '""')}"`;
+      }).join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const SidebarItem = ({ id, icon: Icon, label }: { id: Tab, icon: any, label: string }) => (
@@ -231,6 +425,30 @@ export default function App() {
       <span className="text-sm font-bold uppercase tracking-wider">{label}</span>
     </button>
   );
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-6">
+        <div className="max-w-md w-full bg-zinc-900 border border-zinc-800 p-10 rounded-3xl shadow-2xl text-center space-y-8">
+          <div className="w-20 h-20 bg-emerald-500 rounded-3xl flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20">
+            <Factory className="text-black" size={40} />
+          </div>
+          <div>
+            <h1 className="text-3xl font-black tracking-tighter mb-2">SMP LIGHT MANAGER</h1>
+            <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">Secure Cloud Access Required</p>
+          </div>
+          <button 
+            onClick={login}
+            className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 rounded-2xl font-black text-lg transition-all flex items-center justify-center gap-3 shadow-xl shadow-emerald-900/20"
+          >
+            <LogIn size={24} />
+            SIGN IN WITH GOOGLE
+          </button>
+          <p className="text-xs text-zinc-600">Authorized Personnel Only. All access is logged.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-zinc-100 flex font-sans">
@@ -254,17 +472,27 @@ export default function App() {
           <SidebarItem id="new_allocation" icon={Search} label="New Allocation" />
         </nav>
 
-        <div className="mt-auto p-4 bg-zinc-900/50 rounded-2xl border border-zinc-800">
-          <div className="flex items-center gap-2 text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-3">
-            <Activity size={12} />
-            System Health
-          </div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-              <span className="text-xs font-bold">SQL Connected</span>
+        <div className="mt-auto space-y-4">
+          <div className="p-4 bg-zinc-900/50 rounded-2xl border border-zinc-800">
+            <div className="flex items-center gap-2 text-[10px] text-zinc-500 uppercase font-bold tracking-widest mb-3">
+              <Activity size={12} />
+              System Health
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+                <span className="text-xs font-bold">Cloud Sync Active</span>
+              </div>
             </div>
           </div>
+          
+          <button 
+            onClick={logout}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-500 hover:bg-red-500/10 hover:text-red-400 transition-all text-left text-xs font-bold uppercase tracking-widest"
+          >
+            <LogOut size={16} />
+            Sign Out
+          </button>
         </div>
       </aside>
 
@@ -282,10 +510,10 @@ export default function App() {
             </h2>
           </div>
           <div className="flex gap-3">
-            <button className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-xs font-bold uppercase tracking-widest transition-all flex items-center gap-2 border border-zinc-700">
-              <Download size={14} />
-              Export Config
-            </button>
+            <div className="flex items-center gap-3 px-4 py-2 bg-zinc-900 border border-zinc-800 rounded-xl">
+              <img src={user.photoURL || ''} className="w-6 h-6 rounded-full" />
+              <span className="text-xs font-bold text-zinc-400">{user.displayName}</span>
+            </div>
           </div>
         </header>
 
@@ -301,19 +529,21 @@ export default function App() {
               <div className="space-y-6">
                 <div className="flex justify-between items-end mb-4">
                   <div>
-                    <h3 className="text-2xl font-black flex items-center gap-3 uppercase tracking-tighter">
-                      <Factory className="text-emerald-500" />
-                      SMT LINE CONFIGURATION
-                    </h3>
                     <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest mt-1">Integrated Machine & Software Matrix</p>
                   </div>
                   <div className="flex gap-3">
-                    <a 
-                      href="/api/reports/config" 
+                    <button 
+                      onClick={() => {
+                        const exportData = machines.map(m => ({
+                          ...m,
+                          line_name: lines.find(l => l.id === m.line_id)?.line_number || 'Unknown'
+                        }));
+                        exportCSV(exportData, 'smt_line_configuration.csv', ['line_name', 'machine_id', 'model', 'equipment_type', 'serial_number', 'software_level', 'ip_address', 'dns', 'gateway', 'os', 'windows_key', 'year', 'nozzle_config']);
+                      }}
                       className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
                     >
                       <Download size={14} /> Export All Line, Machine, Software and Nozzle Configuration
-                    </a>
+                    </button>
                     <button 
                       onClick={() => setShowAddMachine(!showAddMachine)}
                       className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
@@ -330,7 +560,7 @@ export default function App() {
                         <label className="text-[10px] font-bold text-zinc-500 uppercase">Process Line</label>
                         <select 
                           className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
-                          onChange={e => setNewMachine({...newMachine, line_id: parseInt(e.target.value)})}
+                          onChange={e => setNewMachine({...newMachine, line_id: e.target.value})}
                         >
                           <option value="">Select Line</option>
                           {lines.map(l => <option key={l.id} value={l.id}>{l.line_number}</option>)}
@@ -370,10 +600,11 @@ export default function App() {
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[10px] font-bold text-zinc-500 uppercase">Software Version</label>
-                        <input 
-                          placeholder="GUI xxxx; MCS yyyy"
-                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">Software Version (Multiple values supported)</label>
+                        <textarea 
+                          placeholder="GUI xxxx;&#10;MCS yyyy"
+                          rows={2}
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none resize-none"
                           onChange={e => setNewMachine({...newMachine, software_level: e.target.value})}
                         />
                       </div>
@@ -421,6 +652,14 @@ export default function App() {
                           onChange={e => setNewMachine({...newMachine, year: e.target.value})}
                         />
                       </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold text-zinc-500 uppercase">Nozzle Configuration</label>
+                        <input 
+                          placeholder="e.g. CN030, CN040"
+                          className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm outline-none"
+                          onChange={e => setNewMachine({...newMachine, nozzle_config: e.target.value})}
+                        />
+                      </div>
                     </div>
                     <div className="flex justify-end pt-2">
                       <button 
@@ -454,34 +693,37 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-800">
-                        {machines.map(m => (
-                          <tr key={m.id} className="hover:bg-emerald-500/5 transition-colors group">
-                            <td className="px-4 py-3 font-bold text-emerald-500 whitespace-nowrap">{m.line_name}</td>
-                            <td className="px-4 py-3 font-mono text-xs text-zinc-300 whitespace-nowrap">{m.machine_id}</td>
-                            <td className="px-4 py-3 text-sm text-zinc-400 whitespace-nowrap">{m.model}</td>
-                            <td className="px-4 py-3 text-[10px] font-bold text-zinc-500 uppercase whitespace-nowrap">{m.equipment_type}</td>
-                            <td className="px-4 py-3 text-sm text-zinc-300 whitespace-nowrap">{m.serial_number}</td>
-                            <td className="px-4 py-3">
-                              <div className="text-[11px] font-mono bg-zinc-800/50 px-2 py-1 rounded border border-zinc-700/50 text-emerald-400 inline-block whitespace-nowrap">
-                                {m.software_level}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 font-mono text-xs text-blue-400 whitespace-nowrap">{m.ip_address}</td>
-                            <td className="px-4 py-3 font-mono text-[10px] text-zinc-500 whitespace-nowrap">{m.dns}</td>
-                            <td className="px-4 py-3 font-mono text-[10px] text-zinc-500 whitespace-nowrap">{m.gateway}</td>
-                            <td className="px-4 py-3 text-xs text-zinc-400 whitespace-nowrap">{m.os}</td>
-                            <td className="px-4 py-3 font-mono text-[10px] text-zinc-500 whitespace-nowrap">{m.windows_key}</td>
-                            <td className="px-4 py-3 text-sm text-zinc-400 whitespace-nowrap">{m.year}</td>
-                            <td className="px-4 py-3 text-right">
-                              <button 
-                                onClick={() => deleteMachine(m.id)}
-                                className="text-zinc-700 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                              >
-                                <Trash2 size={14} />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                        {machines.map(m => {
+                          const line = lines.find(l => l.id === m.line_id);
+                          return (
+                            <tr key={m.id} className="hover:bg-emerald-500/5 transition-colors group">
+                              <td className="px-4 py-3 font-bold text-emerald-500 whitespace-nowrap">{line?.line_number || 'Unknown'}</td>
+                              <td className="px-4 py-3 font-mono text-xs text-zinc-300 whitespace-nowrap">{m.machine_id}</td>
+                              <td className="px-4 py-3 text-sm text-zinc-400 whitespace-nowrap">{m.model}</td>
+                              <td className="px-4 py-3 text-[10px] font-bold text-zinc-500 uppercase whitespace-nowrap">{m.equipment_type}</td>
+                              <td className="px-4 py-3 text-sm text-zinc-300 whitespace-nowrap">{m.serial_number}</td>
+                              <td className="px-4 py-3">
+                                <div className="text-[11px] font-mono bg-zinc-800/50 px-2 py-1 rounded border border-zinc-700/50 text-emerald-400 inline-block whitespace-pre-line">
+                                  {m.software_level}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 font-mono text-xs text-blue-400 whitespace-nowrap">{m.ip_address}</td>
+                              <td className="px-4 py-3 font-mono text-[10px] text-zinc-500 whitespace-nowrap">{m.dns}</td>
+                              <td className="px-4 py-3 font-mono text-[10px] text-zinc-500 whitespace-nowrap">{m.gateway}</td>
+                              <td className="px-4 py-3 text-xs text-zinc-400 whitespace-nowrap">{m.os}</td>
+                              <td className="px-4 py-3 font-mono text-[10px] text-zinc-500 whitespace-nowrap">{m.windows_key}</td>
+                              <td className="px-4 py-3 text-sm text-zinc-400 whitespace-nowrap">{m.year}</td>
+                              <td className="px-4 py-3 text-right">
+                                <button 
+                                  onClick={() => deleteMachine(m.id)}
+                                  className="text-zinc-700 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -840,6 +1082,20 @@ export default function App() {
                         </div>
                         <span className="text-[10px] font-mono text-zinc-600">Active</span>
                       </div>
+                      {user?.email === 'jianuolee1@gmail.com' && (
+                        <button 
+                          onClick={seedDatabase}
+                          disabled={isSeeding}
+                          className={`w-full mt-4 py-3 rounded-2xl text-[10px] font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 border ${
+                            isSeeding 
+                              ? 'bg-zinc-800 text-zinc-500 border-zinc-700 cursor-not-allowed' 
+                              : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border-emerald-500/20'
+                          }`}
+                        >
+                          <Database size={14} className={isSeeding ? 'animate-spin' : ''} />
+                          {isSeeding ? 'Seeding Data...' : 'Seed Initial SM1-SM8 Data'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
