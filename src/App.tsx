@@ -148,6 +148,8 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState({ totalLines: 0, totalMachines: 0, activeBottlenecks: 0, lastSync: '' });
   const [loading, setLoading] = useState(true);
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
   const [showAddLine, setShowAddLine] = useState(false);
   const [showAddMachine, setShowAddMachine] = useState(false);
@@ -224,11 +226,20 @@ export default function App() {
   };
 
   const login = async () => {
+    setLoginLoading(true);
+    setLoginError(null);
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
+      if (error.code === 'auth/popup-blocked') {
+        setLoginError('Login popup was blocked by your browser. Please allow popups for this site.');
+      } else {
+        setLoginError(error.message || 'Failed to sign in. Please try again.');
+      }
+    } finally {
+      setLoginLoading(false);
     }
   };
 
@@ -439,11 +450,30 @@ export default function App() {
           </div>
           <button 
             onClick={login}
-            className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 rounded-2xl font-black text-lg transition-all flex items-center justify-center gap-3 shadow-xl shadow-emerald-900/20"
+            disabled={loginLoading}
+            className={`w-full py-4 rounded-2xl font-black text-lg transition-all flex items-center justify-center gap-3 shadow-xl ${
+              loginLoading 
+                ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' 
+                : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/20'
+            }`}
           >
-            <LogIn size={24} />
-            SIGN IN WITH GOOGLE
+            {loginLoading ? (
+              <Activity className="animate-spin" size={24} />
+            ) : (
+              <LogIn size={24} />
+            )}
+            {loginLoading ? 'CONNECTING...' : 'SIGN IN WITH GOOGLE'}
           </button>
+          
+          {loginError && (
+            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3 text-left">
+              <AlertCircle className="text-red-500 shrink-0" size={16} />
+              <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider leading-relaxed">
+                {loginError}
+              </p>
+            </div>
+          )}
+
           <p className="text-xs text-zinc-600">Authorized Personnel Only. All access is logged.</p>
         </div>
       </div>
