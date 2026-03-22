@@ -107,25 +107,63 @@ async function startServer() {
   // Seed Data
   app.post('/api/seed', (req, res) => {
     const db = readDB();
-    // Simplified seed logic
     const lineData = [
-      { id: 'l1', facility: 'Rockwell-SGP', line_number: 'SM1', name: 'SM1 Production Line', status: 'Active' },
-      { id: 'l2', facility: 'Rockwell-SGP', line_number: 'SM2', name: 'SM2 Production Line', status: 'Active' },
-      { id: 'l3', facility: 'Rockwell-SGP', line_number: 'SM3', name: 'SM3 Production Line', status: 'Active' },
-      { id: 'l7', facility: 'Rockwell-SGP', line_number: 'SM7', name: 'SM7 Production Line', status: 'Active' },
-      { id: 'l8', facility: 'Rockwell-SGP', line_number: 'SM8', name: 'SM8 Production Line', status: 'Active' },
+      { id: 'l1', facility: 'SMT-A', line_number: 'SM1', name: 'SM1 Production Line', status: 'Active' },
+      { id: 'l2', facility: 'SMT-A', line_number: 'SM2', name: 'SM2 Production Line', status: 'Active' },
+      { id: 'l3', facility: 'SMT-A', line_number: 'SM3', name: 'SM3 Production Line', status: 'Active' },
+      { id: 'l4', facility: 'SMT-A', line_number: 'SM4', name: 'SM4 Production Line', status: 'Active' },
+      { id: 'l5', facility: 'SMT-B', line_number: 'SM5', name: 'SM5 Production Line', status: 'Active' },
+      { id: 'l6', facility: 'SMT-B', line_number: 'SM6', name: 'SM6 Production Line', status: 'Active' },
+      { id: 'l65', facility: 'SMT-B', line_number: 'SM6.5', name: 'SM6.5 Production Line', status: 'Active' },
+      { id: 'l7', facility: 'SMT-B', line_number: 'SM7', name: 'SM7 Production Line', status: 'Active' },
+      { id: 'l8', facility: 'SMT-B', line_number: 'SM8', name: 'SM8 Production Line', status: 'Active' },
+      { id: 'loff', facility: 'Offline', line_number: 'Offline', name: 'Offline Machines', status: 'Active' },
+      { id: 'loffmvp', facility: 'Offline', line_number: 'Offline-MVP', name: 'Offline MVP', status: 'Active' },
+      { id: 'lcc', facility: 'Offline', line_number: 'CC', name: 'Conformal Coating', status: 'Active' },
+      { id: 'lr1', facility: 'Offline', line_number: 'Router 1', name: 'Router 1', status: 'Active' },
+      { id: 'lr2', facility: 'Offline', line_number: 'Router 2', name: 'Router 2', status: 'Active' },
+      { id: 'lr3', facility: 'Offline', line_number: 'Router 3', name: 'Router 3', status: 'Active' },
+      { id: 'laisi', facility: 'Offline', line_number: 'AISI-01', name: 'AISI-01', status: 'Active' },
     ];
     db.lines = lineData;
     db.machines = [
-      { id: 'm1', line_id: 'l1', machine_id: 'SPR11', equipment_type: 'Printer', model: 'MPM Momentum', software_level: '5.2.05', ip_address: '10.116.42.247', os: 'Win 10', year: '2020', brand: 'ITW', name: 'SPR11', serial_number: 'S123', dns: '10.126.0.147', gateway: '10.116.40.1', windows_key: 'N/A', nozzle_config: 'Standard' },
-      { id: 'm2', line_id: 'l1', machine_id: 'GC6A', equipment_type: 'Mounter', model: '120B015', software_level: 'Fuzion 3.13.5', ip_address: '10.116.41.128', os: 'Win 7', year: '2015', brand: 'Universal', name: 'GC6A', serial_number: 'S456', dns: '10.126.0.147', gateway: '10.116.40.1', windows_key: 'N/A', nozzle_config: 'CN030, CN040' },
+      // SM1
+      { id: 'm1', line_id: 'l1', machine_id: 'SM1-DEK', equipment_type: 'Printer', brand: 'DEK', model: 'NeoHorizon', name: 'Printer', serial_number: 'SN1001', software_level: 'v2.4', ip_address: '10.1.1.10', os: 'Win 10', year: '2021', dns: '10.1.1.1', gateway: '10.1.1.1', windows_key: 'N/A', nozzle_config: 'N/A' },
+      { id: 'm2', line_id: 'l1', machine_id: 'SM1-SPI', equipment_type: 'SPI', brand: 'Koh Young', model: 'KY8030', name: 'SPI', serial_number: 'SN1002', software_level: 'v5.1', ip_address: '10.1.1.11', os: 'Win 10', year: '2021', dns: '10.1.1.1', gateway: '10.1.1.1', windows_key: 'N/A', nozzle_config: 'N/A' },
+      { id: 'm3', line_id: 'l1', machine_id: 'SM1-M1', equipment_type: 'Mounter', brand: 'Fuji', model: 'NXT III', name: 'Mounter 1', serial_number: 'SN1003', software_level: 'v6.2', ip_address: '10.1.1.12', os: 'Win 10', year: '2021', dns: '10.1.1.1', gateway: '10.1.1.1', windows_key: 'N/A', nozzle_config: 'N/A' },
+      // SM2
+      { id: 'm4', line_id: 'l2', machine_id: 'SM2-DEK', equipment_type: 'Printer', brand: 'DEK', model: 'NeoHorizon', name: 'Printer', serial_number: 'SN2001', software_level: 'v2.4', ip_address: '10.1.2.10', os: 'Win 10', year: '2022', dns: '10.1.2.1', gateway: '10.1.2.1', windows_key: 'N/A', nozzle_config: 'N/A' },
+      { id: 'm5', line_id: 'l2', machine_id: 'SM2-M1', equipment_type: 'Mounter', brand: 'Fuji', model: 'NXT III', name: 'Mounter 1', serial_number: 'SN2002', software_level: 'v6.2', ip_address: '10.1.2.12', os: 'Win 10', year: '2022', dns: '10.1.2.1', gateway: '10.1.2.1', windows_key: 'N/A', nozzle_config: 'N/A' },
+      // SM3
+      { id: 'm6', line_id: 'l3', machine_id: 'SM3-DEK', equipment_type: 'Printer', brand: 'DEK', model: 'NeoHorizon', name: 'Printer', serial_number: 'SN3001', software_level: 'v2.4', ip_address: '10.1.3.10', os: 'Win 10', year: '2020', dns: '10.1.3.1', gateway: '10.1.3.1', windows_key: 'N/A', nozzle_config: 'N/A' },
+      { id: 'm7', line_id: 'l3', machine_id: 'SM3-M1', equipment_type: 'Mounter', brand: 'Fuji', model: 'NXT III', name: 'Mounter 1', serial_number: 'SN3002', software_level: 'v6.2', ip_address: '10.1.3.12', os: 'Win 10', year: '2020', dns: '10.1.3.1', gateway: '10.1.3.1', windows_key: 'N/A', nozzle_config: 'N/A' },
+      // SM4
+      { id: 'm8', line_id: 'l4', machine_id: 'SM4-M1', equipment_type: 'Mounter', brand: 'Fuji', model: 'NXT III', name: 'Mounter 1', serial_number: 'SN4001', software_level: 'v6.2', ip_address: '10.1.4.12', os: 'Win 10', year: '2021', dns: '10.1.4.1', gateway: '10.1.4.1', windows_key: 'N/A', nozzle_config: 'N/A' },
+      // SM5
+      { id: 'm9', line_id: 'l5', machine_id: 'SM5-M1', equipment_type: 'Mounter', brand: 'Fuji', model: 'NXT III', name: 'Mounter 1', serial_number: 'SN5001', software_level: 'v6.2', ip_address: '10.1.5.12', os: 'Win 10', year: '2021', dns: '10.1.5.1', gateway: '10.1.5.1', windows_key: 'N/A', nozzle_config: 'N/A' },
+      // SM6
+      { id: 'm10', line_id: 'l6', machine_id: 'SM6-M1', equipment_type: 'Mounter', brand: 'Fuji', model: 'NXT III', name: 'Mounter 1', serial_number: 'SN6001', software_level: 'v6.2', ip_address: '10.1.6.12', os: 'Win 10', year: '2021', dns: '10.1.6.1', gateway: '10.1.6.1', windows_key: 'N/A', nozzle_config: 'N/A' },
+      // SM7
+      { id: 'm11', line_id: 'l7', machine_id: 'SM7-M1', equipment_type: 'Mounter', brand: 'Fuji', model: 'NXT III', name: 'Mounter 1', serial_number: 'SN7001', software_level: 'v6.2', ip_address: '10.1.7.12', os: 'Win 10', year: '2021', dns: '10.1.7.1', gateway: '10.1.7.1', windows_key: 'N/A', nozzle_config: 'N/A' },
+      // SM8
+      { id: 'm12', line_id: 'l8', machine_id: 'SM8-M1', equipment_type: 'Mounter', brand: 'Fuji', model: 'NXT III', name: 'Mounter 1', serial_number: 'SN8001', software_level: 'v6.2', ip_address: '10.1.8.12', os: 'Win 10', year: '2021', dns: '10.1.8.1', gateway: '10.1.8.1', windows_key: 'N/A', nozzle_config: 'N/A' },
+      // Offline
+      { id: 'm13', line_id: 'loff', machine_id: 'OFF-AOI', equipment_type: 'AOI', brand: 'Koh Young', model: 'Zenith', name: 'AOI', serial_number: 'SN9001', software_level: 'v4.0', ip_address: '10.1.9.10', os: 'Win 10', year: '2019', dns: '10.1.9.1', gateway: '10.1.9.1', windows_key: 'N/A', nozzle_config: 'N/A' },
     ];
     db.cycle_times = [
-      { id: 'ct1', macyid: 'M101', plant: 'SGP', line_id: 'l1', setupnum: 'S1', workorderno: 'WO-9901', assembly_no: 'ASSY-001', revision: 'A', side: 'TOP', machine_name: 'GC6A', line_position: '3', boardsp: 12, modules: 1, total_panel: 100, panel_start_time: '08:00', panel_end_time: '08:01', medium_cycle_time: 15, current_cycle_time: 18 },
+      { id: 'ct1', macyid: 'SGP-2024-001', setupnum: 'S101', workorderno: 'WO-88291', assembly_no: 'PCB-A-992', revision: 'A1', side: 'TOP', machine_name: 'SM1-M1', boardsp: 'SP-01', current_cycle_time: 45.2, medium_cycle_time: 42.0, panel_start_time: '2024-03-22 08:00:00', panel_end_time: '2024-03-22 08:00:45' },
+      { id: 'ct2', macyid: 'SGP-2024-002', setupnum: 'S101', workorderno: 'WO-88291', assembly_no: 'PCB-A-992', revision: 'A1', side: 'TOP', machine_name: 'SM1-M2', boardsp: 'SP-01', current_cycle_time: 38.5, medium_cycle_time: 42.0, panel_start_time: '2024-03-22 08:00:45', panel_end_time: '2024-03-22 08:01:23' },
+      { id: 'ct3', macyid: 'SGP-2024-003', setupnum: 'S102', workorderno: 'WO-88292', assembly_no: 'PCB-B-112', revision: 'B2', side: 'BOT', machine_name: 'SM2-M1', boardsp: 'SP-02', current_cycle_time: 52.1, medium_cycle_time: 48.0, panel_start_time: '2024-03-22 08:10:00', panel_end_time: '2024-03-22 08:10:52' },
+      { id: 'ct4', macyid: 'SGP-2024-004', setupnum: 'S103', workorderno: 'WO-88293', assembly_no: 'PCB-C-445', revision: 'C1', side: 'TOP', machine_name: 'SM3-M1', boardsp: 'SP-03', current_cycle_time: 41.0, medium_cycle_time: 41.0, panel_start_time: '2024-03-22 08:15:00', panel_end_time: '2024-03-22 08:15:41' },
+      { id: 'ct5', macyid: 'SGP-2024-005', setupnum: 'S104', workorderno: 'WO-88294', assembly_no: 'PCB-D-778', revision: 'D4', side: 'TOP', machine_name: 'SM4-M1', boardsp: 'SP-04', current_cycle_time: 65.4, medium_cycle_time: 55.0, panel_start_time: '2024-03-22 08:20:00', panel_end_time: '2024-03-22 08:21:05' },
+      { id: 'ct6', macyid: 'SGP-2025-501', setupnum: '1397', workorderno: '4018340011', assembly_no: '4018340011-PH-473017', revision: 'A', side: 'BOTTOM', machine_name: 'SM5-GA1', boardsp: 'SP-05', current_cycle_time: 50.0, medium_cycle_time: 45.0, panel_start_time: '2025-03-17 14:02:00', panel_end_time: '2025-03-17 14:14:00' },
+      { id: 'ct7', macyid: 'SGP-2025-502', setupnum: '1397', workorderno: '4018340011', assembly_no: '4018340011-PH-473017', revision: 'A', side: 'BOTTOM', machine_name: 'SM5-GA2', boardsp: 'SP-05', current_cycle_time: 47.0, medium_cycle_time: 45.0, panel_start_time: '2025-03-17 14:02:00', panel_end_time: '2025-03-17 14:14:00' },
+      { id: 'ct8', macyid: 'SGP-2025-503', setupnum: '1397', workorderno: '4018340011', assembly_no: '4018340011-PH-473017', revision: 'A', side: 'BOTTOM', machine_name: 'SM5-GCSA', boardsp: 'SP-05', current_cycle_time: 45.0, medium_cycle_time: 45.0, panel_start_time: '2025-03-17 14:02:00', panel_end_time: '2025-03-17 14:14:00' },
+      { id: 'ct9', macyid: 'SGP-2025-504', setupnum: '1397', workorderno: '4018340011', assembly_no: '4018340011-PH-473017', revision: 'A', side: 'BOTTOM', machine_name: 'SM5-GCSB', boardsp: 'SP-05', current_cycle_time: 42.0, medium_cycle_time: 45.0, panel_start_time: '2025-03-17 14:02:00', panel_end_time: '2025-03-17 14:14:00' },
+      { id: 'ct10', macyid: 'SGP-2025-505', setupnum: '1398', workorderno: '4018340012', assembly_no: '4018340012-PH-473018', revision: 'B', side: 'TOP', machine_name: 'SM5-GA1', boardsp: 'SP-06', current_cycle_time: 55.0, medium_cycle_time: 50.0, panel_start_time: '2025-03-17 15:10:00', panel_end_time: '2025-03-17 15:22:00' },
     ];
-    db.family_groupings = [
-      { id: 'f1', assembly_number: 'ASSY-001', pcb_number: 'PCB-101', family: 'Power Supply', family_num: 'FAM-01', top_line_name: 'SM1', bottom_line_name: 'SM2', cycle_time: 18, circuit_count: 2, board_length: 200, board_width: 150, placement_count: 165 },
-    ];
+    db.family_groupings = [];
+    db.constraints = [];
     writeDB(db);
     res.json({ success: true });
   });

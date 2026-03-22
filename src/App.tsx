@@ -376,8 +376,9 @@ function App() {
       setFamilyGroupings(familyData);
 
       // Calculate stats
+      const smtLines = linesData.filter((l: any) => /^SM[1-8]$/.test(l.line_number));
       setStats({
-        totalLines: linesData.length,
+        totalLines: smtLines.length,
         totalMachines: machinesData.length,
         activeBottlenecks: 0, // Simplified for now
         lastSync: new Date().toISOString()
@@ -740,7 +741,7 @@ function App() {
                   <UserIcon size={14} className="text-zinc-500" />
                 </div>
               ) : (
-                <img src={user?.photoURL || ''} className="w-6 h-6 rounded-full" />
+                <img src={user?.photoURL || undefined} className="w-6 h-6 rounded-full" alt="" referrerPolicy="no-referrer" />
               )}
               <span className="text-xs font-bold text-zinc-400">
                 {isGuest ? 'Guest Viewer' : user?.displayName}
@@ -758,35 +759,68 @@ function App() {
             transition={{ duration: 0.2 }}
           >
             {activeTab === 'config' && (
-              <div className="space-y-6">
-                <div className="flex justify-between items-end mb-4">
-                  <div>
-                    <p className="text-zinc-500 text-xs font-bold uppercase tracking-widest mt-1">Integrated Machine & Software Matrix</p>
+              <div className="space-y-10">
+                {/* Line Registry Section */}
+                <section className="space-y-4">
+                  <div className="flex justify-between items-end">
+                    <div>
+                      <h3 className="text-lg font-black flex items-center gap-3">
+                        <Factory className="text-emerald-500" />
+                        Line Registry
+                      </h3>
+                      <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mt-1">Master list of all 16 production lines</p>
+                    </div>
                   </div>
-                  <div className="flex gap-3">
-                    <button 
-                      onClick={() => {
-                        const exportData = machines.map(m => ({
-                          ...m,
-                          line_name: lines.find(l => l.id === m.line_id)?.line_number || 'Unknown'
-                        }));
-                        exportCSV(exportData, 'smt_line_configuration.csv', ['line_name', 'machine_id', 'model', 'equipment_type', 'serial_number', 'software_level', 'ip_address', 'dns', 'gateway', 'os', 'windows_key', 'year', 'nozzle_config']);
-                      }}
-                      className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
-                    >
-                      <Download size={14} /> Export all Line, Machine, Software & Nozzle configs
-                    </button>
-                    <button 
-                      onClick={() => setShowAddMachine(!showAddMachine)}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
-                    >
-                      <Plus size={14} /> {showAddMachine ? 'Cancel' : 'Add Machine'}
-                    </button>
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+                    {lines.map(line => (
+                      <div key={line.id} className="p-3 bg-zinc-900 border border-zinc-800 rounded-2xl hover:border-emerald-500/30 transition-all group relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-1">
+                          <div className={`w-1.5 h-1.5 rounded-full ${line.status === 'Active' ? 'bg-emerald-500' : 'bg-zinc-600'}`} />
+                        </div>
+                        <div className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter">{line.facility}</div>
+                        <div className="text-lg font-black text-zinc-100 group-hover:text-emerald-400 transition-colors">{line.line_number}</div>
+                        <div className="text-[9px] font-mono text-zinc-500 mt-1">{machines.filter(m => m.line_id === line.id).length} Machines</div>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                </section>
 
-                {showAddMachine && (
-                  <div className="p-6 bg-zinc-900 border border-emerald-500/30 rounded-2xl space-y-4 shadow-2xl">
+                <div className="h-px bg-zinc-800/50" />
+
+                {/* Machine Matrix Section */}
+                <section className="space-y-4">
+                  <div className="flex justify-between items-end">
+                    <div>
+                      <h3 className="text-lg font-black flex items-center gap-3">
+                        <Cpu className="text-emerald-500" />
+                        Integrated Machine & Software Matrix
+                      </h3>
+                      <p className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mt-1">Detailed configuration for all equipment</p>
+                    </div>
+                    <div className="flex gap-3">
+                      <button 
+                        onClick={() => {
+                          const exportData = machines.map(m => ({
+                            ...m,
+                            line_name: lines.find(l => l.id === m.line_id)?.line_number || 'Unknown'
+                          }));
+                          exportCSV(exportData, 'smt_line_configuration.csv', ['line_name', 'machine_id', 'model', 'equipment_type', 'serial_number', 'software_level', 'ip_address', 'dns', 'gateway', 'os', 'windows_key', 'year', 'nozzle_config']);
+                        }}
+                        className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
+                      >
+                        <Download size={14} /> Export Configs
+                      </button>
+                      <button 
+                        onClick={() => setShowAddMachine(!showAddMachine)}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-[10px] font-bold uppercase tracking-widest transition-all flex items-center gap-2"
+                      >
+                        <Plus size={14} /> {showAddMachine ? 'Cancel' : 'Add Machine'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {showAddMachine && (
+                    <div className="p-6 bg-zinc-900 border border-emerald-500/30 rounded-2xl space-y-4 shadow-2xl">
                     <div className="grid grid-cols-4 gap-4">
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold text-zinc-500 uppercase">Assigned Line</label>
@@ -925,9 +959,15 @@ function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-800">
-                        {machines.map(m => {
-                          const line = lines.find(l => l.id === m.line_id);
-                          return (
+                        {machines
+                          .sort((a, b) => {
+                            const lineA = lines.find(l => l.id === a.line_id)?.line_number || '';
+                            const lineB = lines.find(l => l.id === b.line_id)?.line_number || '';
+                            return lineA.localeCompare(lineB, undefined, { numeric: true, sensitivity: 'base' });
+                          })
+                          .map(m => {
+                            const line = lines.find(l => l.id === m.line_id);
+                            return (
                             <tr key={m.id} className="hover:bg-emerald-500/5 transition-colors group">
                               <td className="px-4 py-3 font-bold text-emerald-500 whitespace-nowrap">{line?.line_number || 'Unknown'}</td>
                               <td className="px-4 py-3 font-mono text-xs text-zinc-300 whitespace-nowrap">{m.machine_id}</td>
@@ -966,11 +1006,39 @@ function App() {
                     </div>
                   )}
                 </div>
-              </div>
-            )}
+              </section>
+            </div>
+          )}
 
             {activeTab === 'cycletime' && (
               <div className="space-y-8">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl">
+                    <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Avg Cycle Time</div>
+                    <div className="text-2xl font-black text-emerald-500">
+                      {(cycleTimes.reduce((acc, curr) => acc + curr.current_cycle_time, 0) / (cycleTimes.length || 1)).toFixed(1)}s
+                    </div>
+                  </div>
+                  <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl">
+                    <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Target Achievement</div>
+                    <div className="text-2xl font-black text-blue-500">
+                      {((cycleTimes.filter(ct => ct.current_cycle_time <= ct.medium_cycle_time).length / (cycleTimes.length || 1)) * 100).toFixed(0)}%
+                    </div>
+                  </div>
+                  <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl">
+                    <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Total Work Orders</div>
+                    <div className="text-2xl font-black text-zinc-100">
+                      {new Set(cycleTimes.map(ct => ct.workorderno)).size}
+                    </div>
+                  </div>
+                  <div className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl">
+                    <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">Active Setups</div>
+                    <div className="text-2xl font-black text-zinc-100">
+                      {new Set(cycleTimes.map(ct => ct.setupnum)).size}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-4 gap-4">
                   <button className="p-6 bg-zinc-900 border border-zinc-800 rounded-2xl hover:border-emerald-500/50 transition-all text-left group">
                     <FileUp className="text-emerald-500 mb-4 group-hover:scale-110 transition-transform" />
@@ -1035,12 +1103,16 @@ function App() {
                           <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Module</th>
                           <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Total Panels</th>
                           <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Start / End Time</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Target Cycle Time</th>
                           <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Current Cycle Time</th>
+                          <th className="px-4 py-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Efficiency</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-zinc-800">
-                        {cycleTimes.map(ct => (
-                          <tr key={ct.id} className="hover:bg-zinc-800/20">
+                        {cycleTimes.map(ct => {
+                          const efficiency = (ct.medium_cycle_time / ct.current_cycle_time) * 100;
+                          return (
+                          <tr key={ct.id} className="hover:bg-zinc-800/20 transition-colors">
                             <td className="px-4 py-4 font-mono text-[10px] text-emerald-500">{ct.macyid}</td>
                             <td className="px-4 py-4 text-xs font-bold text-zinc-400">SGP</td>
                             <td className="px-4 py-4 text-xs">{ct.setupnum}</td>
@@ -1052,7 +1124,7 @@ function App() {
                             <td className="px-4 py-4">
                               <span className="px-2 py-0.5 bg-zinc-800 rounded text-[10px] font-bold border border-zinc-700 uppercase">{ct.side}</span>
                             </td>
-                            <td className="px-4 py-4 text-xs">{ct.machine_name}</td>
+                            <td className="px-4 py-4 text-xs font-bold text-zinc-300">{ct.machine_name}</td>
                             <td className="px-4 py-4 font-mono text-xs">{ct.boardsp}</td>
                             <td className="px-4 py-4 text-xs">1</td>
                             <td className="px-4 py-4 text-xs">100</td>
@@ -1060,11 +1132,19 @@ function App() {
                               <div>{ct.panel_start_time}</div>
                               <div>{ct.panel_end_time}</div>
                             </td>
+                            <td className="px-4 py-4 font-mono text-xs text-zinc-500">
+                              {ct.medium_cycle_time}s
+                            </td>
                             <td className={`px-4 py-4 font-mono text-xs font-bold ${ct.current_cycle_time > ct.medium_cycle_time ? 'text-red-500' : 'text-emerald-500'}`}>
                               {ct.current_cycle_time}s
                             </td>
+                            <td className="px-4 py-4 text-right">
+                              <div className={`text-xs font-black ${efficiency >= 100 ? 'text-emerald-500' : efficiency >= 85 ? 'text-blue-500' : 'text-red-500'}`}>
+                                {efficiency.toFixed(1)}%
+                              </div>
+                            </td>
                           </tr>
-                        ))}
+                        );})}
                       </tbody>
                     </table>
                   </div>
@@ -1266,21 +1346,56 @@ function App() {
                   </div>
                 </div>
 
+                <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl">
+                  <h3 className="text-lg font-black mb-6 flex items-center gap-3">
+                    <Factory className="text-emerald-500" />
+                    Process Lines Overview
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    {lines.map(line => (
+                      <div key={line.id} className="p-4 bg-zinc-800/30 rounded-2xl border border-zinc-800 hover:border-emerald-500/30 transition-all group">
+                        <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-1">{line.facility}</div>
+                        <div className="text-xl font-black text-zinc-100 group-hover:text-emerald-400 transition-colors">{line.line_number}</div>
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter">{line.machine_count} Machines</span>
+                          <div className={`w-1.5 h-1.5 rounded-full ${line.status === 'Active' ? 'bg-emerald-500' : 'bg-zinc-600'}`} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-3xl">
                     <h3 className="text-lg font-black mb-6 flex items-center gap-3">
                       <Activity className="text-emerald-500" />
-                      {t('performance')}
+                      Line Efficiency (Actual vs Target)
                     </h3>
                     <div className="space-y-4">
-                      <div className="flex justify-between items-center p-4 bg-zinc-800/30 rounded-2xl border border-zinc-800">
-                        <div className="text-xs font-bold text-zinc-400 uppercase tracking-widest">{t('avgEfficiency')}</div>
-                        <div className="text-xl font-black text-emerald-500">92.4%</div>
-                      </div>
-                      <div className="flex justify-between items-center p-4 bg-zinc-800/30 rounded-2xl border border-zinc-800">
-                        <div className="text-xs font-bold text-zinc-400 uppercase tracking-widest">{t('targetAchievement')}</div>
-                        <div className="text-xl font-black text-blue-500">88.1%</div>
-                      </div>
+                      {lines.filter(l => l.line_number.startsWith('SM')).slice(0, 8).map(line => {
+                        const lineCTs = cycleTimes.filter(ct => ct.machine_name.startsWith(line.line_number));
+                        const avgEfficiency = lineCTs.length > 0 
+                          ? lineCTs.reduce((acc, curr) => acc + (curr.medium_cycle_time / curr.current_cycle_time), 0) / lineCTs.length * 100
+                          : 0;
+                        
+                        return (
+                          <div key={line.id} className="space-y-1">
+                            <div className="flex justify-between text-[10px] font-bold uppercase tracking-tighter">
+                              <span className="text-zinc-400">{line.line_number}</span>
+                              <span className={avgEfficiency >= 90 ? 'text-emerald-500' : avgEfficiency >= 70 ? 'text-blue-500' : 'text-zinc-600'}>
+                                {avgEfficiency > 0 ? `${avgEfficiency.toFixed(1)}%` : 'No Data'}
+                              </span>
+                            </div>
+                            <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                              <motion.div 
+                                initial={{ width: 0 }}
+                                animate={{ width: `${avgEfficiency}%` }}
+                                className={`h-full ${avgEfficiency >= 90 ? 'bg-emerald-500' : avgEfficiency >= 70 ? 'bg-blue-500' : 'bg-zinc-700'}`}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
