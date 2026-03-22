@@ -1,0 +1,26 @@
+{
+  "lines": [
+    { "id": "l1", "facility": "Rockwell-SGP", "line_number": "SM1", "name": "SM1 Production Line", "status": "Active" },
+    { "id": "l2", "facility": "Rockwell-SGP", "line_number": "SM2", "name": "SM2 Production Line", "status": "Active" },
+    { "id": "l3", "facility": "Rockwell-SGP", "line_number": "SM3", "name": "SM3 Production Line", "status": "Active" },
+    { "id": "l4", "facility": "Rockwell-SGP", "line_number": "SM4", "name": "SM4 Production Line", "status": "Active" },
+    { "id": "l5", "facility": "Rockwell-SGP", "line_number": "SM5", "name": "SM5 Production Line", "status": "Active" },
+    { "id": "l6", "facility": "Rockwell-SGP", "line_number": "SM6", "name": "SM6 Production Line", "status": "Active" },
+    { "id": "l7", "facility": "Rockwell-SGP", "line_number": "SM7", "name": "SM7 Production Line", "status": "Active" },
+    { "id": "l8", "facility": "Rockwell-SGP", "line_number": "SM8", "name": "SM8 Production Line", "status": "Active" }
+  ],
+  "machines": [
+    { "id": "m1", "line_id": "l1", "machine_id": "SPR11", "equipment_type": "Printer", "model": "MPM Momentum", "software_level": "5.2.05", "ip_address": "10.116.42.247", "os": "Win 10", "year": "2020", "brand": "ITW", "name": "SPR11", "serial_number": "S123", "dns": "10.126.0.147", "gateway": "10.116.40.1", "windows_key": "N/A", "nozzle_config": "Standard" },
+    { "id": "m2", "line_id": "l1", "machine_id": "GC6A", "equipment_type": "Mounter", "model": "120B015", "software_level": "Fuzion 3.13.5", "ip_address": "10.116.41.128", "os": "Win 7", "year": "2015", "brand": "Universal", "name": "GC6A", "serial_number": "S456", "dns": "10.126.0.147", "gateway": "10.116.40.1", "windows_key": "N/A", "nozzle_config": "CN030, CN040" },
+    { "id": "m3", "line_id": "l2", "machine_id": "SPR4", "equipment_type": "Printer", "model": "DEK 03iX", "software_level": "09 SP13", "ip_address": "10.116.41.236", "os": "Win 7", "year": "2018", "brand": "DEK", "name": "SPR4", "serial_number": "S789", "dns": "10.126.0.147", "gateway": "10.116.40.1", "windows_key": "N/A", "nozzle_config": "Standard" }
+  ],
+  "constraints": [
+    { "id": "c1", "line_id": "l1", "line_number": "SM1", "type": "High Speed", "description": "Optimized for small components", "is_active": true }
+  ],
+  "cycle_times": [
+    { "id": "ct1", "macyid": "M101", "plant": "SGP", "line_id": "l1", "setupnum": "S1", "workorderno": "WO-9901", "assembly_no": "ASSY-001", "revision": "A", "side": "TOP", "machine_name": "GC6A", "line_position": "3", "boardsp": 12, "modules": 1, "total_panel": 100, "panel_start_time": "08:00", "panel_end_time": "08:01", "medium_cycle_time": 15, "current_cycle_time": 18 }
+  ],
+  "family_groupings": [
+    { "id": "f1", "assembly_number": "ASSY-001", "pcb_number": "PCB-101", "family": "Power Supply", "family_num": "FAM-01", "top_line_name": "SM1", "bottom_line_name": "SM2", "cycle_time": 18, "circuit_count": 2, "board_length": 200, "board_width": 150, "placement_count": 165 }
+  ]
+}

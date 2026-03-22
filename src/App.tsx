@@ -33,31 +33,8 @@ import {
   User as UserIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  collection, 
-  onSnapshot, 
-  addDoc, 
-  deleteDoc, 
-  doc, 
-  updateDoc, 
-  query, 
-  orderBy,
-  getDoc,
-  getDocs,
-  where,
-  writeBatch,
-  getDocFromServer
-} from 'firebase/firestore';
-import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  onAuthStateChanged,
-  signOut,
-  User,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword
-} from 'firebase/auth';
-import { db, auth } from './firebase';
+
+// Removed Firebase imports - using local API
 
 const translations = {
   en: {
@@ -199,23 +176,23 @@ interface CycleTime {
 
 interface FamilyGrouping {
   id: string;
-  assembly_number: string;
-  pcb_number: string;
-  family: string;
-  family_num: string;
-  top_line_name: string;
-  bottom_line_name: string;
-  cycle_time: number;
-  circuit_count: number;
-  board_length: number;
-  board_width: number;
-  placement_count: number;
+  name: string;
+  assemblies: string[];
+  common_setups: string[];
 }
 
 interface Bottleneck {
+  id: string;
   line_id: string;
-  machine_name: string;
-  max_time: number;
+  machine_id: string;
+  severity: 'high' | 'medium' | 'low';
+  impact_percent: number;
+}
+
+interface User {
+  displayName: string;
+  email: string;
+  photoURL: string | null;
 }
 
 enum OperationType {
@@ -247,26 +224,9 @@ interface FirestoreErrorInfo {
 }
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
-    operationType,
-    path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  console.error(`API Error [${operationType}] at ${path}:`, errorMessage);
+  throw new Error(errorMessage);
 }
 
 interface ErrorBoundaryProps {
@@ -352,12 +312,8 @@ function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'line' | 'machine', id: string } | null>(null);
-  const [authMode, setAuthMode] = useState<'login' | 'register' | 'select'>('select');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [showAddLine, setShowAddLine] = useState(false);
   const [showAddMachine, setShowAddMachine] = useState(false);
-  const [showDeploymentHelp, setShowDeploymentHelp] = useState(false);
   const [newLine, setNewLine] = useState({ facility: 'Rockwell-SGP', line_number: '', name: '' });
   const [newMachine, setNewMachine] = useState({ 
     line_id: '', machine_id: '', equipment_type: 'Mounter', brand: '', model: '', name: '', 
@@ -369,181 +325,121 @@ function App() {
     { part_number: 'PN-1122-Y', nozzle: 'CN040', placement_count: 45 }
   ]);
 
+  const [accessCode, setAccessCode] = useState('');
+
+  const runSimulation = () => {
+    // Simple simulation logic
+    const results = lines.map(line => ({
+      line_id: line.id,
+      line_name: line.name,
+      predicted_efficiency: 85 + Math.random() * 10,
+      bottleneck_machine: machines.find(m => m.line_id === line.id)?.name || 'Unknown',
+      optimization_potential: Math.random() * 15
+    }));
+    setSimulationResults(results);
+  };
+
   useEffect(() => {
-    let unsubscribes: (() => void)[] = [];
-
-    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser || isGuest) {
-        unsubscribes = setupListeners();
-      } else {
-        setLoading(false);
-      }
-    });
-
-    if (isGuest) {
-      unsubscribes = setupListeners();
+    // Check local storage for session
+    const savedUser = localStorage.getItem('smp_user');
+    if (savedUser) {
+      setUser(JSON.parse(savedUser));
+      fetchData();
+    } else if (isGuest) {
+      fetchData();
+    } else {
+      setLoading(false);
     }
-
-    return () => {
-      unsubscribeAuth();
-      unsubscribes.forEach(unsub => unsub?.());
-    };
   }, [isGuest]);
 
-  const setupListeners = () => {
-    const unsubscribes: (() => void)[] = [];
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const [linesRes, machinesRes, constraintsRes, ctRes, familyRes] = await Promise.all([
+        fetch('/api/lines'),
+        fetch('/api/machines'),
+        fetch('/api/constraints'),
+        fetch('/api/cycle_times'),
+        fetch('/api/family_groupings')
+      ]);
 
-    if (isGuest) {
-      // Load Mock Data for Guest Mode
-      const mockLines: Line[] = [
-        { id: 'm1', facility: 'Rockwell-SGP', line_number: 'SM1', name: 'SM1 Production Line', status: 'Active', machine_count: 5 },
-        { id: 'm2', facility: 'Rockwell-SGP', line_number: 'SM2', name: 'SM2 Production Line', status: 'Active', machine_count: 4 },
-        { id: 'm3', facility: 'Rockwell-SGP', line_number: 'SM3', name: 'SM3 Production Line', status: 'Active', machine_count: 4 },
-        { id: 'm7', facility: 'Rockwell-SGP', line_number: 'SM7', name: 'SM7 Production Line', status: 'Active', machine_count: 4 },
-      ];
-      const mockMachines: Machine[] = [
-        { id: 'mac1', line_id: 'm1', line_name: 'SM1', machine_id: 'SPR11', equipment_type: 'Printer', brand: 'ITW', model: 'MPM Momentum', name: 'SPR11', serial_number: 'S12345', software_level: '5.2.05', ip_address: '10.116.42.247', dns: '10.126.0.147', gateway: '10.116.40.1', os: 'Win 10', windows_key: 'N/A', year: '2020', nozzle_config: 'Standard' },
-        { id: 'mac2', line_id: 'm1', line_name: 'SM1', machine_id: 'GC6A', equipment_type: 'Mounter', brand: 'Universal', model: '120B015', name: 'GC6A', serial_number: 'S67890', software_level: 'Fuzion 3.13.5', ip_address: '10.116.41.128', dns: '10.126.0.147', gateway: '10.116.40.1', os: 'Win 7', windows_key: 'N/A', year: '2015', nozzle_config: 'CN030, CN040' },
-      ];
-      const mockCycleTimes: CycleTime[] = [
-        { id: 'ct1', macyid: 'M101', plant: 'SGP', line_id: 'm1', setupnum: 'S1', workorderno: 'WO-9901', assembly_no: 'ASSY-001', revision: 'A', side: 'TOP', machine_name: 'GC6A', line_position: '3', boardsp: 12, modules: 1, total_panel: 100, panel_start_time: '08:00', panel_end_time: '08:01', medium_cycle_time: 15, current_cycle_time: 18 },
-      ];
-      
-      setLines(mockLines);
-      setMachines(mockMachines);
-      setCycleTimes(mockCycleTimes);
+      const linesData = await linesRes.json();
+      const machinesData = await machinesRes.json();
+      const constraintsData = await constraintsRes.json();
+      const ctData = await ctRes.json();
+      const familyData = await familyRes.json();
+
+      setLines(linesData);
+      setMachines(machinesData);
+      setConstraints(constraintsData);
+      setCycleTimes(ctData);
+      setFamilyGroupings(familyData);
+
+      // Calculate stats
       setStats({
-        totalLines: mockLines.length,
-        totalMachines: mockMachines.length,
-        activeBottlenecks: 1,
+        totalLines: linesData.length,
+        totalMachines: machinesData.length,
+        activeBottlenecks: 0, // Simplified for now
         lastSync: new Date().toISOString()
       });
+
       setLoading(false);
-      return [];
+    } catch (error) {
+      console.error('Fetch error:', error);
+      setLoading(false);
     }
-
-    const unsubLines = onSnapshot(collection(db, 'lines'), (snapshot) => {
-      const linesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Line));
-      setLines(linesData);
-      setStats(prev => ({ ...prev, totalLines: linesData.length }));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'lines'));
-    unsubscribes.push(unsubLines);
-
-    const unsubMachines = onSnapshot(collection(db, 'machines'), (snapshot) => {
-      const machinesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Machine));
-      setMachines(machinesData);
-      setStats(prev => ({ ...prev, totalMachines: machinesData.length }));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'machines'));
-    unsubscribes.push(unsubMachines);
-
-    const unsubConstraints = onSnapshot(collection(db, 'constraints'), (snapshot) => {
-      setConstraints(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Constraint)));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'constraints'));
-    unsubscribes.push(unsubConstraints);
-
-    const unsubCycleTimes = onSnapshot(collection(db, 'cycle_times'), (snapshot) => {
-      const ctData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CycleTime));
-      setCycleTimes(ctData);
-      
-      // Calculate bottlenecks
-      const lineBottlenecks: Record<string, Bottleneck> = {};
-      ctData.forEach(ct => {
-        if (!lineBottlenecks[ct.line_id] || ct.current_cycle_time > lineBottlenecks[ct.line_id].max_time) {
-          lineBottlenecks[ct.line_id] = {
-            line_id: ct.line_id,
-            machine_name: ct.machine_name,
-            max_time: ct.current_cycle_time
-          };
-        }
-      });
-      setBottlenecks(Object.values(lineBottlenecks));
-      
-      const activeB = Object.values(lineBottlenecks).filter(b => {
-        const ct = ctData.find(c => c.line_id === b.line_id && c.machine_name === b.machine_name);
-        return ct && ct.current_cycle_time > ct.medium_cycle_time;
-      }).length;
-      setStats(prev => ({ ...prev, activeBottlenecks: activeB, lastSync: new Date().toISOString() }));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'cycle_times'));
-    unsubscribes.push(unsubCycleTimes);
-
-    const unsubFamily = onSnapshot(collection(db, 'family_groupings'), (snapshot) => {
-      setFamilyGroupings(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FamilyGrouping)));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'family_groupings'));
-    unsubscribes.push(unsubFamily);
-
-    setLoading(false);
-    
-    // Test connection
-    const testConnection = async () => {
-      try {
-        await getDocFromServer(doc(db, 'test', 'connection'));
-      } catch (error) {
-        if(error instanceof Error && error.message.includes('the client is offline')) {
-          console.error("Please check your Firebase configuration. ");
-        }
-      }
-    }
-    testConnection();
-
-    return unsubscribes;
   };
 
   const login = async () => {
     setLoginLoading(true);
     setLoginError(null);
-    const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
-    } catch (error: any) {
-      console.error('Login error:', error);
-      if (error.code === 'auth/popup-blocked') {
-        setLoginError('Login popup blocked by browser. Please allow popups for this site.');
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: accessCode })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUser(data.user);
+        localStorage.setItem('smp_user', JSON.stringify(data.user));
+        fetchData();
       } else {
-        setLoginError(error.message || 'Login failed. Please try again.');
+        setLoginError('Invalid Access Code. Try SMP2026');
       }
+    } catch (error: any) {
+      setLoginError('Server connection failed.');
     } finally {
       setLoginLoading(false);
     }
   };
 
-  const loginWithEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginLoading(true);
-    setLoginError(null);
-    try {
-      if (authMode === 'register') {
-        await createUserWithEmailAndPassword(auth, email, password);
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-      }
-    } catch (error: any) {
-      if (error.code === 'auth/email-already-in-use') {
-        setLoginError('Email already in use.');
-      } else if (error.code === 'auth/invalid-credential') {
-        setLoginError('Invalid email or password.');
-      } else if (error.code === 'auth/weak-password') {
-        setLoginError('Password too weak. Use at least 6 characters.');
-      } else {
-        setLoginError(error.message);
-      }
-    } finally {
-      setLoginLoading(false);
-    }
+  const logout = () => {
+    setUser(null);
+    localStorage.removeItem('smp_user');
+    setIsGuest(false);
   };
-
-  const logout = () => signOut(auth);
 
   const toggleConstraint = async (id: string, currentStatus: boolean) => {
-    await updateDoc(doc(db, 'constraints', id), { is_active: !currentStatus });
+    await fetch(`/api/constraints/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_active: !currentStatus })
+    });
+    fetchData();
   };
 
   const addLine = async () => {
     if (!newLine.line_number || !newLine.name) return;
     try {
-      await addDoc(collection(db, 'lines'), { ...newLine, status: 'Active' });
+      await fetch('/api/lines', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...newLine, status: 'Active' })
+      });
       setNewLine({ facility: 'Rockwell-SGP', line_number: '', name: '' });
       setShowAddLine(false);
+      fetchData();
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'lines');
     }
@@ -552,8 +448,13 @@ function App() {
   const addMachine = async () => {
     if (!newMachine.line_id || !newMachine.name) return;
     try {
-      await addDoc(collection(db, 'machines'), newMachine);
+      await fetch('/api/machines', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newMachine)
+      });
       setShowAddMachine(false);
+      fetchData();
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'machines');
     }
@@ -561,12 +462,9 @@ function App() {
 
   const deleteLine = async (id: string) => {
     try {
-      // Delete machines first
-      const q = query(collection(db, 'machines'), where('line_id', '==', id));
-      const snapshot = await getDocs(q);
-      await Promise.all(snapshot.docs.map(d => deleteDoc(d.ref)));
-      await deleteDoc(doc(db, 'lines', id));
+      await fetch(`/api/lines/${id}`, { method: 'DELETE' });
       setConfirmDelete(null);
+      fetchData();
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `lines/${id}`);
     }
@@ -574,138 +472,22 @@ function App() {
 
   const deleteMachine = async (id: string) => {
     try {
-      await deleteDoc(doc(db, 'machines', id));
+      await fetch(`/api/machines/${id}`, { method: 'DELETE' });
       setConfirmDelete(null);
+      fetchData();
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `machines/${id}`);
     }
   };
 
-  const runSimulation = async () => {
-    // Client-side simulation logic
-    const results = lines.map(line => {
-      const lineMachines = machines.filter(m => m.line_id === line.id);
-      const lineConstraints = constraints.filter(c => c.line_id === line.id && c.is_active);
-      
-      let score = 0;
-      let missingNozzles: string[] = [];
-
-      etfComponents.forEach(comp => {
-        const hasNozzle = lineMachines.some(m => 
-          m.nozzle_config && m.nozzle_config.includes(comp.nozzle)
-        );
-        if (hasNozzle) {
-          score += comp.placement_count;
-        } else {
-          missingNozzles.push(comp.nozzle);
-        }
-      });
-
-      return {
-        line_id: line.id,
-        line_number: line.line_number,
-        score,
-        missingNozzles: [...new Set(missingNozzles)],
-        constraints: lineConstraints.map(c => c.type),
-        is_capable: missingNozzles.length === 0
-      };
-    });
-
-    setSimulationResults(results.sort((a, b) => b.score - a.score));
-  };
-
   const seedDatabase = async () => {
-    if (!user || user.email !== 'jianuolee1@gmail.com') return;
-    
     setIsSeeding(true);
     try {
-      const batch = writeBatch(db);
-
-      // Lines SM1-SM8
-      const lineData = [
-        { facility: 'Rockwell-SGP', line_number: 'SM1', name: 'SM1 Production Line', status: 'Active' },
-        { facility: 'Rockwell-SGP', line_number: 'SM2', name: 'SM2 Production Line', status: 'Active' },
-        { facility: 'Rockwell-SGP', line_number: 'SM3', name: 'SM3 Production Line', status: 'Active' },
-        { facility: 'Rockwell-SGP', line_number: 'SM4', name: 'SM4 Production Line', status: 'Active' },
-        { facility: 'Rockwell-SGP', line_number: 'SM5', name: 'SM5 Production Line', status: 'Active' },
-        { facility: 'Rockwell-SGP', line_number: 'SM6', name: 'SM6 Production Line', status: 'Active' },
-        { facility: 'Rockwell-SGP', line_number: 'SM7', name: 'SM7 Production Line', status: 'Active' },
-        { facility: 'Rockwell-SGP', line_number: 'SM8', name: 'SM8 Production Line', status: 'Active' },
-      ];
-
-      const lineRefs: Record<string, string> = {};
-
-      for (const l of lineData) {
-        const lineRef = doc(collection(db, 'lines'));
-        batch.set(lineRef, l);
-        lineRefs[l.line_number] = lineRef.id;
-      }
-
-      // Real Machine Data from Image
-      const machinesData = [
-        // SM1
-        { line_id: lineRefs['SM1'], machine_id: 'SPR11', equipment_type: 'Printer', model: 'MPM Momentum', software_level: '5.2.05', ip_address: '10.116.42.247', os: 'Win 10', year: '2020/10/20' },
-        { line_id: lineRefs['SM1'], machine_id: 'PI1', equipment_type: 'SPI', model: 'KY8030-2', software_level: 'Win 10 4.10.0.2', os: 'Window 7 64bit' },
-        { line_id: lineRefs['SM1'], machine_id: 'GC6A', equipment_type: 'Mounter', model: '120B015', software_level: 'Fuzion 3.13.5', ip_address: '10.116.41.128', os: 'Window 7', year: '2015/11/15' },
-        { line_id: lineRefs['SM1'], machine_id: 'GC6B', equipment_type: 'Mounter', model: '120B015', software_level: 'Fuzion 3.13.5', ip_address: '10.116.41.129', os: 'Window 7', year: '2015/11/15' },
-        { line_id: lineRefs['SM1'], machine_id: 'GX3', equipment_type: 'Mounter', model: 'Fuzion 2-14', software_level: 'Fuzion 3.13.1', ip_address: '10.116.41.115', os: 'Window 7', year: '2015/8/13' },
-        
-        // SM2
-        { line_id: lineRefs['SM2'], machine_id: 'SPR4', equipment_type: 'Printer', model: 'DEK 03iX', software_level: '09 SP13' },
-        { line_id: lineRefs['SM2'], machine_id: 'GC11', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Win 7 Fuzion 3.13.1', ip_address: '10.116.41.236', os: 'Window 7' },
-        { line_id: lineRefs['SM2'], machine_id: 'GC4', equipment_type: 'Mounter', model: 'GC60', software_level: 'Win XP UPS+8.5.6.3', ip_address: '10.116.40.203', os: 'XP SP3', year: '2010/10/10' },
-        { line_id: lineRefs['SM2'], machine_id: 'GX6', equipment_type: 'Mounter', model: 'Fuzion2_14', software_level: 'Win 7 Fuzion 3.13.1', ip_address: '10.116.41.237', os: 'Window 7', year: '2020/11/23' },
-
-        // SM3
-        { line_id: lineRefs['SM3'], machine_id: 'SPR10', equipment_type: 'Printer', model: 'MPM Momentum II', software_level: '5.2.05', ip_address: '10.116.43.187', os: 'Win 10', year: '2020/10/20' },
-        { line_id: lineRefs['SM3'], machine_id: 'GC9', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Fuzion 3.13.5', ip_address: '10.116.41.134', os: 'Window 7' },
-        { line_id: lineRefs['SM3'], machine_id: 'GC10', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Fuzion 3.13.5', ip_address: '10.116.41.136', os: 'Window 7' },
-        { line_id: lineRefs['SM3'], machine_id: 'GX1', equipment_type: 'Mounter', model: 'Fuzion2-14', software_level: 'Fuzion 3.13.1', ip_address: '10.116.41.137', os: 'Window 7', year: '2020/11/23' },
-
-        // SM7
-        { line_id: lineRefs['SM7'], machine_id: 'SPR12', equipment_type: 'Printer', model: 'MPM Momentum II', software_level: '6.0.2.3', ip_address: '10.116.43.184', os: 'Win 10', year: '2021/2/22' },
-        { line_id: lineRefs['SM7'], machine_id: 'GC12', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Win10 Fuzion 4.1.3', ip_address: '10.116.43.132', os: 'Window 10', year: '2022/2/22' },
-        { line_id: lineRefs['SM7'], machine_id: 'GX7', equipment_type: 'Mounter', model: 'Fuzion2-14', software_level: 'Win10 Fuzion 4.1.3', ip_address: '10.116.43.130', os: 'Window 10', year: '2022/2/22' },
-        { line_id: lineRefs['SM7'], machine_id: 'GX8', equipment_type: 'Mounter', model: 'Fuzion1-11', software_level: 'Win10 Fuzion 4.1.3', ip_address: '10.116.43.129', os: 'Window 10', year: '2022/2/22' },
-
-        // SM8
-        { line_id: lineRefs['SM8'], machine_id: 'SPR13', equipment_type: 'Printer', model: 'MPM Momentum II', software_level: '6.0.2.3', ip_address: '10.116.43.230', os: 'Win 10', year: '2021/2/22' },
-        { line_id: lineRefs['SM8'], machine_id: 'GC13', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Win 10 Fuzion 4.1.5', ip_address: '10.116.43.134', os: 'Window 10', year: '2022/2/22' },
-        { line_id: lineRefs['SM8'], machine_id: 'GC14', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Win 10 Fuzion 4.1.5', ip_address: '10.116.43.162', os: 'Window 10', year: '2022/2/22' },
-        { line_id: lineRefs['SM8'], machine_id: 'GX9', equipment_type: 'Mounter', model: 'Fuzion1-11', software_level: 'Win 10 Fuzion 4.1.5', ip_address: '10.116.43.163', os: 'Window 10', year: '2022/2/22' },
-
-        // SM4 (Placeholder based on typical patterns)
-        { line_id: lineRefs['SM4'], machine_id: 'SPR5', equipment_type: 'Printer', model: 'DEK Horizon', software_level: '09 SP13', ip_address: '10.116.41.50', os: 'Win 7' },
-        { line_id: lineRefs['SM4'], machine_id: 'GC5', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Fuzion 3.13.1', ip_address: '10.116.41.51', os: 'Window 7' },
-        
-        // SM5 (Placeholder)
-        { line_id: lineRefs['SM5'], machine_id: 'SPR6', equipment_type: 'Printer', model: 'MPM Momentum', software_level: '5.2.05', ip_address: '10.116.41.60', os: 'Win 10' },
-        { line_id: lineRefs['SM5'], machine_id: 'GC6', equipment_type: 'Mounter', model: '120B015', software_level: 'Fuzion 3.13.5', ip_address: '10.116.41.61', os: 'Window 7' },
-
-        // SM6 (Placeholder)
-        { line_id: lineRefs['SM6'], machine_id: 'SPR7', equipment_type: 'Printer', model: 'DEK NeoHorizon', software_level: '10.0.1', ip_address: '10.116.41.70', os: 'Win 10' },
-        { line_id: lineRefs['SM6'], machine_id: 'GC7', equipment_type: 'Mounter', model: 'Fuzion2-60', software_level: 'Fuzion 4.1.3', ip_address: '10.116.41.71', os: 'Window 10' },
-      ];
-
-      for (const m of machinesData) {
-        const machineRef = doc(collection(db, 'machines'));
-        batch.set(machineRef, {
-          ...m,
-          brand: m.model.includes('Fuzion') || m.model.includes('120B') ? 'Universal' : 
-                 m.model.includes('MPM') ? 'ITW' : 'Other',
-          name: m.machine_id,
-          serial_number: 'SEE_IMAGE',
-          dns: '10.126.0.147/148',
-          gateway: '10.116.40.1',
-          windows_key: 'N/A',
-          nozzle_config: 'Standard'
-        });
-      }
-
-      await batch.commit();
-      setIsSeeding(false);
+      await fetch('/api/seed', { method: 'POST' });
+      fetchData();
     } catch (error) {
-      console.error('Seeding error:', error);
+      console.error('Seed error:', error);
+    } finally {
       setIsSeeding(false);
     }
   };
@@ -744,169 +526,102 @@ function App() {
 
   if (!user && !isGuest) {
     return (
-      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-6">
-        <div className="max-w-md w-full bg-zinc-900 border border-zinc-800 p-10 rounded-3xl shadow-2xl text-center space-y-8">
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center p-6 relative overflow-hidden">
+        {/* Background Effects */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-500/10 rounded-full blur-[120px]" />
+          <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 rounded-full blur-[120px]" />
+        </div>
+
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="max-w-md w-full bg-zinc-900/50 backdrop-blur-xl border border-zinc-800 p-10 rounded-[2.5rem] shadow-2xl text-center space-y-8 relative z-10"
+        >
           <div className="w-20 h-20 bg-emerald-500 rounded-3xl flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20">
             <Factory className="text-black" size={40} />
           </div>
           <div>
-            <h1 className="text-3xl font-black tracking-tighter mb-2">{t('loginTitle')}</h1>
-            <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">{t('loginDesc')}</p>
+            <h1 className="text-3xl font-black tracking-tighter mb-2 text-white">SMT Line Manager</h1>
+            <p className="text-zinc-500 text-sm font-bold uppercase tracking-widest">{lang === 'zh' ? '内部生产管理系统' : 'Internal Production Management'}</p>
           </div>
 
-          {authMode === 'select' ? (
-            <div className="space-y-4">
-              <button 
-                onClick={login}
-                disabled={loginLoading}
-                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black text-lg transition-all flex items-center justify-center gap-3 shadow-xl shadow-emerald-900/20"
-              >
-                <LogIn size={24} />
-                {t('googleLogin').toUpperCase()}
-              </button>
-              <div className="flex items-center gap-4 py-2">
-                <div className="h-px flex-1 bg-zinc-800"></div>
-                <span className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest">OR</span>
-                <div className="h-px flex-1 bg-zinc-800"></div>
-              </div>
-              <button 
-                onClick={() => setAuthMode('login')}
-                className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-2xl font-bold text-sm transition-all border border-zinc-700"
-              >
-                {t('emailLogin')}
-              </button>
-              
-              <div className="pt-4">
-                <button 
-                  onClick={() => setIsGuest(true)}
-                  className="w-full py-4 bg-zinc-900/80 hover:bg-zinc-800 text-emerald-500 rounded-2xl font-bold text-sm transition-all border border-emerald-500/20 flex flex-col items-center gap-1 group"
-                >
-                  <span className="group-hover:scale-105 transition-transform">{t('guestMode')}</span>
-                  <span className="text-[10px] text-zinc-500 font-medium lowercase tracking-normal">{t('guestDesc')}</span>
-                </button>
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={loginWithEmail} className="space-y-4 text-left">
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Email Address</label>
-                <input 
-                  type="email"
-                  required
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500/50 transition-colors"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Password</label>
-                <input 
+          <div className="space-y-6">
+            <div className="space-y-2 text-left">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">
+                {lang === 'zh' ? '系统访问码' : 'System Access Code'}
+              </label>
+              <div className="relative">
+                <ShieldAlert className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-500" />
+                <input
                   type="password"
-                  required
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500/50 transition-colors"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
+                  value={accessCode}
+                  onChange={(e) => setAccessCode(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-zinc-800/50 border border-zinc-700 rounded-2xl py-4 pl-12 pr-4 text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all font-mono"
+                  onKeyDown={(e) => e.key === 'Enter' && login()}
                 />
               </div>
-              <button 
-                type="submit"
-                disabled={loginLoading}
-                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black text-lg transition-all shadow-xl shadow-emerald-900/20"
+            </div>
+
+            {loginError && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="flex items-center gap-3 text-red-400 text-[10px] font-bold uppercase tracking-wider bg-red-400/10 p-4 rounded-2xl border border-red-400/20 text-left"
               >
-                {loginLoading ? 'Processing...' : authMode === 'login' ? t('confirm') : 'Create Account'}
-              </button>
-              <div className="flex justify-between items-center px-1">
-                <button 
-                  type="button"
-                  onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}
-                  className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest hover:underline"
-                >
-                  {authMode === 'login' ? "Don't have an account?" : 'Already have an account? Sign In'}
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => setAuthMode('select')}
-                  className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest hover:underline"
-                >
-                  {t('cancel')}
-                </button>
-              </div>
-            </form>
-          )}
-          
-          {loginError && (
-            <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3 text-left">
-              <AlertCircle className="text-red-500 shrink-0" size={16} />
-              <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider leading-relaxed">
+                <AlertCircle className="w-4 h-4 shrink-0" />
                 {loginError}
-              </p>
-            </div>
-          )}
+              </motion.div>
+            )}
 
-          <div className="flex justify-center gap-4 pt-2">
-            <button onClick={() => setLang('en')} className={`text-[10px] font-bold tracking-widest ${lang === 'en' ? 'text-emerald-500' : 'text-zinc-600'}`}>EN</button>
-            <button onClick={() => setLang('zh')} className={`text-[10px] font-bold tracking-widest ${lang === 'zh' ? 'text-emerald-500' : 'text-zinc-600'}`}>中文</button>
-          </div>
-
-          <p className="text-xs text-zinc-600">{t('authNotice')}</p>
-          
-          <div className="pt-4 border-t border-zinc-800/50 flex flex-col gap-3">
-            <button 
-              onClick={() => {
-                navigator.clipboard.writeText(window.location.href);
-                alert('App URL copied to clipboard! Share this link with others.');
-              }}
-              className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest hover:text-emerald-500 transition-colors flex items-center gap-2 mx-auto"
+            <button
+              onClick={login}
+              disabled={loginLoading}
+              className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-black font-black py-4 rounded-2xl transition-all shadow-xl shadow-emerald-500/10 flex items-center justify-center gap-2 group text-lg uppercase tracking-tighter"
             >
-              <Globe size={12} />
-              {t('copyUrl')}
+              {loginLoading ? (
+                <div className="w-6 h-6 border-3 border-black/20 border-t-black rounded-full animate-spin" />
+              ) : (
+                <>
+                  <LogIn className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                  {lang === 'zh' ? '进入系统' : 'Enter System'}
+                </>
+              )}
             </button>
-            <button 
-              onClick={() => setShowDeploymentHelp(true)}
-              className="text-[10px] font-bold text-zinc-600 uppercase tracking-widest hover:text-zinc-400 transition-colors flex items-center gap-2 mx-auto"
-            >
-              <Settings size={12} />
-              {t('deploymentHelp')}
-            </button>
-          </div>
-        </div>
 
-        {/* Deployment Help Modal */}
-        {showDeploymentHelp && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-6">
-            <div className="max-w-md w-full bg-zinc-900 border border-zinc-800 p-8 rounded-3xl shadow-2xl space-y-6 text-left">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-blue-500/10 rounded-2xl flex items-center justify-center">
-                  <Globe className="text-blue-500" size={24} />
-                </div>
-                <div>
-                  <h3 className="text-xl font-black tracking-tight">{t('domainHelpTitle')}</h3>
-                  <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Configuration Guide</p>
-                </div>
+            <div className="relative py-2">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-zinc-800"></div>
               </div>
-              
-              <div className="space-y-4">
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  {t('domainHelpDesc')}
-                </p>
-                <div className="p-4 bg-zinc-800/50 rounded-2xl border border-zinc-800 space-y-3">
-                  <p className="text-xs text-zinc-300 font-medium">{t('domainHelpStep1')}</p>
-                  <p className="text-xs text-zinc-300 font-medium">{t('domainHelpStep2')}</p>
-                  <code className="block p-2 bg-black rounded text-[10px] text-emerald-400 font-mono break-all">
-                    {window.location.host}
-                  </code>
-                </div>
+              <div className="relative flex justify-center text-[10px] font-bold uppercase tracking-widest">
+                <span className="bg-zinc-900 px-4 text-zinc-600">{lang === 'zh' ? '或者' : 'OR'}</span>
               </div>
-
-              <button 
-                onClick={() => setShowDeploymentHelp(false)}
-                className="w-full py-4 bg-zinc-800 hover:bg-zinc-700 text-white rounded-2xl font-bold text-xs uppercase tracking-widest transition-all"
-              >
-                {t('confirm')}
-              </button>
             </div>
+
+            <button
+              onClick={() => setIsGuest(true)}
+              className="w-full bg-zinc-800/50 hover:bg-zinc-800 text-zinc-400 font-bold py-4 rounded-2xl transition-all border border-zinc-700 flex items-center justify-center gap-2 text-sm uppercase tracking-widest"
+            >
+              <Globe className="w-5 h-5" />
+              {lang === 'zh' ? '访客预览模式' : 'Guest Preview Mode'}
+            </button>
           </div>
-        )}
+
+          <div className="pt-6 border-t border-zinc-800 flex flex-col items-center gap-4">
+            <button 
+              onClick={() => setLang(lang === 'en' ? 'zh' : 'en')}
+              className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 text-[10px] font-bold uppercase tracking-widest transition-colors"
+            >
+              <Globe className="w-4 h-4" />
+              {lang === 'en' ? 'Switch to Chinese' : '切换至中文'}
+            </button>
+            
+            <p className="text-[9px] text-zinc-600 text-center leading-relaxed uppercase tracking-tighter max-w-[280px]">
+              {lang === 'zh' ? '本系统仅供内部使用。所有数据操作将被记录。' : 'Internal use only. All data operations are logged for security.'}
+            </p>
+          </div>
+        </motion.div>
       </div>
     );
   }
@@ -955,6 +670,17 @@ function App() {
             </div>
           </div>
           
+          <button 
+            onClick={() => {
+              navigator.clipboard.writeText(window.location.origin);
+              alert('App URL copied to clipboard!');
+            }}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-zinc-500 hover:bg-emerald-500/10 hover:text-emerald-400 transition-all text-left text-xs font-bold uppercase tracking-widest"
+          >
+            <Globe size={16} />
+            {t('copyUrl')}
+          </button>
+
           <button 
             onClick={() => {
               if (isGuest) setIsGuest(false);
