@@ -409,7 +409,8 @@ function App() {
         setLoginError('Invalid Access Code. Try SMP2026');
       }
     } catch (error: any) {
-      setLoginError('Server connection failed.');
+      console.error('Login error:', error);
+      setLoginError(`Server connection failed: ${error.message || 'Unknown error'}`);
     } finally {
       setLoginLoading(false);
     }

@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 
 const DB_PATH = process.env.VERCEL 
   ? path.join('/tmp', 'db.json')
-  : path.join(process.cwd(), 'src', 'data', 'db.json');
+  : path.join(__dirname, 'src', 'data', 'db.json');
 
 export async function createServer() {
   // Ensure DB directory and file exist
@@ -20,7 +20,7 @@ export async function createServer() {
   
   if (!fs.existsSync(DB_PATH)) {
     // On Vercel, try to copy the initial data from the source directory
-    const sourceDBPath = path.join(process.cwd(), 'src', 'data', 'db.json');
+    const sourceDBPath = path.join(__dirname, 'src', 'data', 'db.json');
     if (fs.existsSync(sourceDBPath)) {
       console.log('Copying initial data to /tmp/db.json');
       fs.copyFileSync(sourceDBPath, DB_PATH);
@@ -39,8 +39,15 @@ export async function createServer() {
 
   const app = express();
 
+  // Vercel pre-parses the body, so we only use bodyParser if it's not already parsed
+  app.use((req, res, next) => {
+    if (process.env.VERCEL && req.body && typeof req.body === 'object') {
+      next();
+    } else {
+      bodyParser.json()(req, res, next);
+    }
+  });
   app.use(cors());
-  app.use(bodyParser.json());
 
   // Health check
   app.get('/api/health', (req, res) => res.json({ status: 'ok', environment: process.env.NODE_ENV, vercel: !!process.env.VERCEL }));
