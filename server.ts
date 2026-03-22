@@ -30,7 +30,6 @@ export async function createServer() {
   }
 
   const app = express();
-  const PORT = process.env.PORT || 3000;
 
   app.use(cors());
   app.use(bodyParser.json());
@@ -194,7 +193,7 @@ export async function createServer() {
 
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
   createServer().then(app => {
-    const PORT = process.env.PORT || 3000;
+    const PORT = Number(process.env.PORT) || 3000;
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Server running on http://localhost:${PORT}`);
     });
