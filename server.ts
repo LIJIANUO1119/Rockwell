@@ -4,7 +4,6 @@ import bodyParser from 'body-parser';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createServer as createViteServer } from 'vite';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,15 +17,24 @@ export async function createServer() {
   if (!fs.existsSync(path.dirname(DB_PATH))) {
     fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   }
+  
   if (!fs.existsSync(DB_PATH)) {
-    const initialData = {
-      lines: [],
-      machines: [],
-      constraints: [],
-      cycle_times: [],
-      family_groupings: []
-    };
-    fs.writeFileSync(DB_PATH, JSON.stringify(initialData, null, 2));
+    // On Vercel, try to copy the initial data from the source directory
+    const sourceDBPath = path.join(process.cwd(), 'src', 'data', 'db.json');
+    if (fs.existsSync(sourceDBPath)) {
+      console.log('Copying initial data to /tmp/db.json');
+      fs.copyFileSync(sourceDBPath, DB_PATH);
+    } else {
+      console.log('Creating empty db.json');
+      const initialData = {
+        lines: [],
+        machines: [],
+        constraints: [],
+        cycle_times: [],
+        family_groupings: []
+      };
+      fs.writeFileSync(DB_PATH, JSON.stringify(initialData, null, 2));
+    }
   }
 
   const app = express();
@@ -174,13 +182,15 @@ export async function createServer() {
 
   // --- Vite / Static Files ---
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else {
+  } else if (!process.env.VERCEL) {
+    // Only serve static files if NOT on Vercel (Vercel handles static files natively)
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
