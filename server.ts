@@ -9,29 +9,34 @@ import { createServer as createViteServer } from 'vite';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DB_PATH = path.join(__dirname, 'src', 'data', 'db.json');
+const DB_PATH = process.env.VERCEL 
+  ? path.join('/tmp', 'db.json')
+  : path.join(process.cwd(), 'src', 'data', 'db.json');
 
-// Ensure DB directory and file exist
-if (!fs.existsSync(path.dirname(DB_PATH))) {
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-}
-if (!fs.existsSync(DB_PATH)) {
-  const initialData = {
-    lines: [],
-    machines: [],
-    constraints: [],
-    cycle_times: [],
-    family_groupings: []
-  };
-  fs.writeFileSync(DB_PATH, JSON.stringify(initialData, null, 2));
-}
+export async function createServer() {
+  // Ensure DB directory and file exist
+  if (!fs.existsSync(path.dirname(DB_PATH))) {
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+  }
+  if (!fs.existsSync(DB_PATH)) {
+    const initialData = {
+      lines: [],
+      machines: [],
+      constraints: [],
+      cycle_times: [],
+      family_groupings: []
+    };
+    fs.writeFileSync(DB_PATH, JSON.stringify(initialData, null, 2));
+  }
 
-async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   app.use(cors());
   app.use(bodyParser.json());
+
+  // Health check
+  app.get('/api/health', (req, res) => res.json({ status: 'ok', environment: process.env.NODE_ENV, vercel: !!process.env.VERCEL }));
 
   // Helper to read DB
   const readDB = () => JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
@@ -184,9 +189,14 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  return app;
 }
 
-startServer();
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  createServer().then(app => {
+    const PORT = process.env.PORT || 3000;
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  });
+}
