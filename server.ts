@@ -10,31 +10,52 @@ const __dirname = path.dirname(__filename);
 
 const DB_PATH = process.env.VERCEL 
   ? path.join('/tmp', 'db.json')
-  : path.join(__dirname, 'src', 'data', 'db.json');
+  : path.join(process.cwd(), 'src', 'data', 'db.json');
 
 export async function createServer() {
-  // Ensure DB directory and file exist
-  if (!fs.existsSync(path.dirname(DB_PATH))) {
-    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-  }
+  console.log('Current DB_PATH:', DB_PATH);
   
-  if (!fs.existsSync(DB_PATH)) {
-    // On Vercel, try to copy the initial data from the source directory
-    const sourceDBPath = path.join(__dirname, 'src', 'data', 'db.json');
-    if (fs.existsSync(sourceDBPath)) {
-      console.log('Copying initial data to /tmp/db.json');
-      fs.copyFileSync(sourceDBPath, DB_PATH);
-    } else {
-      console.log('Creating empty db.json');
-      const initialData = {
-        lines: [],
-        machines: [],
-        constraints: [],
-        cycle_times: [],
-        family_groupings: []
-      };
-      fs.writeFileSync(DB_PATH, JSON.stringify(initialData, null, 2));
+  try {
+    // Ensure DB directory exists
+    const dbDir = path.dirname(DB_PATH);
+    if (!fs.existsSync(dbDir)) {
+      fs.mkdirSync(dbDir, { recursive: true });
     }
+    
+    if (!fs.existsSync(DB_PATH)) {
+      // Try multiple possible locations for the seed data
+      const possibleSeedPaths = [
+        path.join(process.cwd(), 'src', 'data', 'db.json'),
+        path.join(process.cwd(), 'data', 'db.json'),
+        path.join(__dirname, 'src', 'data', 'db.json'),
+        path.join(__dirname, '..', 'src', 'data', 'db.json')
+      ];
+      
+      let seeded = false;
+      for (const seedPath of possibleSeedPaths) {
+        if (fs.existsSync(seedPath)) {
+          console.log(`Found seed data at: ${seedPath}, copying to ${DB_PATH}`);
+          fs.copyFileSync(seedPath, DB_PATH);
+          seeded = true;
+          break;
+        }
+      }
+      
+      if (!seeded) {
+        console.log('No seed data found, creating default structure');
+        const initialData = {
+          lines: [],
+          machines: [],
+          constraints: [],
+          cycle_times: [],
+          family_groupings: []
+        };
+        fs.writeFileSync(DB_PATH, JSON.stringify(initialData, null, 2));
+      }
+    }
+  } catch (err) {
+    console.error('Failed to initialize database:', err);
+    // Continue anyway, the app might still work if it doesn't hit the DB immediately
   }
 
   const app = express();
